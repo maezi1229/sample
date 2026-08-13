@@ -25,6 +25,25 @@ class TooManyItemsError(Exception):
     pass
 
 
+class DestinationNotSetError(Exception):
+    """客先名・宛先担当者名がテンプレートに未入力の場合に送出する。"""
+
+
+def _check_destination_filled(ws) -> None:
+    customer = ws["B2"].value
+    contact = ws["B3"].value
+    missing = []
+    if not str(customer or "").strip():
+        missing.append("B2（客先名）")
+    if not str(contact or "").strip():
+        missing.append("B3（宛先担当者名）")
+    if missing:
+        raise DestinationNotSetError(
+            f"テンプレートに宛先が未入力です: {', '.join(missing)}。"
+            "自動転記の前に、案件に合わせて客先名・担当者名を入力してください。"
+        )
+
+
 def _ensure_item_formulas(ws, row: int) -> None:
     """単価・金額・仕入金額・利益の数式が入っていることを保証する（①行目のパターンに合わせる）。"""
     ws[f"F{row}"] = f"=ROUND(N{row}*{MARGIN_CELL_ABS},-2)"
@@ -49,6 +68,7 @@ def fill_quote_template(template_path: Path, output_path: Path, items: list) -> 
 
     wb = openpyxl.load_workbook(output_path)
     ws = wb.active
+    _check_destination_filled(ws)
 
     for row, item in zip(ITEM_ROWS, items):
         qty = item["qty"]
