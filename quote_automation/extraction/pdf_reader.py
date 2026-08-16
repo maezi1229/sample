@@ -4,19 +4,12 @@
 「スキャン・FAXの画像PDF」が混在しうるため、まずPDF内蔵のテキスト層を試し、
 文字数が少ない（＝画像PDF）場合のみOCRにフォールバックする。
 """
-import sys
 from pathlib import Path
 
 import fitz  # pymupdf
 import pytesseract
 from PIL import Image
 from pypdf import PdfReader
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from quote_automation import config
-
-if config.TESSERACT_CMD:
-    pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
 
 MIN_TEXT_LEN_FOR_NATIVE = 20
 

@@ -1,0 +1,93 @@
+"""チャットで確認済みの見積データ(JSON)を読み込む。
+
+旧仕様（レビューシートxlsxを人がExcelで開いて確認）は廃止。
+新仕様では、Claudeがチャット上で仕入先PDFの読み取り内容・客先名・担当者名・
+上乗せ率(%)・備考をユーザーに確認し、その回答をこのJSON形式でまとめてから
+Step2（テンプレート転記）に渡す。
+
+JSONスキーマ（以下はダミーデータの例。実在の客先名・仕入先名・金額は書かない）:
+{
+  "customer_name": "サンプル工業株式会社 御中",
+  "contact_name": "総務部　鈴木 様",
+  "supplier_name": "テスト製鋼株式会社",
+  "supplier_contact": "田中",
+  "item_title": "ABC123_サンプル部品（１０×１０）",
+  "markup_percent": 9,
+  "remarks_lines": ["溶接仕上げは前回製作時と同様になります。", ...],
+  "items": [
+    {"name": "ABC123_サンプル部品（１０×１０）", "qty": 3, "unit_price": 100000}
+  ]
+}
+
+supplier_name / supplier_contact は見積書テンプレートには転記しない
+（自社見積書に仕入先名は出さない）。見積り集計表（分析用の記帳）にのみ使う。
+"""
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+class InvalidConfirmedQuoteError(Exception):
+    """JSONの必須項目が欠けている場合に送出する。"""
+
+
+@dataclass
+class ConfirmedItem:
+    name: str
+    qty: float
+    unit_price: float
+
+
+@dataclass
+class ConfirmedQuote:
+    customer_name: str
+    contact_name: str
+    item_title: str
+    markup_percent: float
+    items: list = field(default_factory=list)
+    remarks_lines: list = field(default_factory=list)
+    supplier_name: str = ""
+    supplier_contact: str = ""
+
+
+REQUIRED_TOP_LEVEL_KEYS = (
+    "customer_name",
+    "contact_name",
+    "item_title",
+    "markup_percent",
+    "items",
+)
+
+
+def load_confirmed_quote(json_path: Path) -> ConfirmedQuote:
+    json_path = Path(json_path)
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+
+    missing = [k for k in REQUIRED_TOP_LEVEL_KEYS if not data.get(k) and data.get(k) != 0]
+    if missing:
+        raise InvalidConfirmedQuoteError(
+            f"確定済み見積JSONに必須項目がありません: {', '.join(missing)}"
+        )
+
+    items = []
+    for raw in data["items"]:
+        if raw.get("qty") is None or raw.get("unit_price") is None:
+            raise InvalidConfirmedQuoteError(f"明細『{raw.get('name')}』の数量または単価が未確定です。")
+        items.append(ConfirmedItem(
+            name=str(raw.get("name") or "").strip(),
+            qty=float(raw["qty"]),
+            unit_price=float(raw["unit_price"]),
+        ))
+    if not items:
+        raise InvalidConfirmedQuoteError("明細（品名・数量・単価）が1件も確定されていません。")
+
+    return ConfirmedQuote(
+        customer_name=str(data["customer_name"]).strip(),
+        contact_name=str(data["contact_name"]).strip(),
+        item_title=str(data["item_title"]).strip(),
+        markup_percent=float(data["markup_percent"]),
+        items=items,
+        remarks_lines=list(data.get("remarks_lines") or []),
+        supplier_name=str(data.get("supplier_name") or "").strip(),
+        supplier_contact=str(data.get("supplier_contact") or "").strip(),
+    )

@@ -1,8 +1,8 @@
 """Step3: 利益上乗せ計算が正しいかを検証する。
 
 Step2で転記した見積書(xlsx)をLibreOffice Calc(headless)で実際に再計算させ、
-そこで得られた値が「仕入単価 × 利益率セル(M17)をROUND(-2)した値」と一致するかを
-Pythonで独立に計算し直して突き合わせる。
+そこで得られた値が「仕入単価 × 利益率セル(M17)を1000円単位で切り上げた値」と
+一致するかをPythonで独立に計算し直して突き合わせる。
 一致しない場合は、テンプレートの数式が壊れている・利益率セルがずれている等の
 異常を早期に検知できる。
 
@@ -10,7 +10,6 @@ Pythonで独立に計算し直して突き合わせる。
     python step3_verify_calculation.py <Step2で作成したxlsx>
 """
 import argparse
-import math
 import sys
 import tempfile
 from pathlib import Path
@@ -18,20 +17,12 @@ from pathlib import Path
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from quote_automation.template.fill_quote import ITEM_ROWS
+from quote_automation.template.fill_quote import ITEM_ROWS, ROUND_DIGITS, excel_roundup
 from quote_automation.template.recalc import recalculate_with_libreoffice
 
 
 class VerificationError(Exception):
     pass
-
-
-def excel_round(value: float, num_digits: int) -> float:
-    """ExcelのROUND関数（四捨五入、0から遠い方向）をPythonで再現する。"""
-    factor = 10 ** num_digits
-    scaled = value * factor
-    rounded = math.floor(scaled + 0.5) if scaled >= 0 else math.ceil(scaled - 0.5)
-    return rounded / factor
 
 
 def run(quote_path: Path) -> bool:
@@ -62,7 +53,7 @@ def run(quote_path: Path) -> bool:
             if unit_cost is None:
                 continue  # この行は未使用
 
-            expected_unit_price = excel_round(unit_cost * margin_rate, -2)
+            expected_unit_price = excel_roundup(unit_cost * margin_rate, ROUND_DIGITS)
             expected_amount = expected_unit_price * qty
             expected_profit = expected_amount - cost_amount
 
