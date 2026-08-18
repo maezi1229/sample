@@ -1,9 +1,11 @@
 """Step3: 利益上乗せ計算が正しいかを検証する。
 
 Step2で転記した見積書(xlsx)をLibreOffice Calc(headless)で実際に再計算させ、
-そこで得られた値が「仕入単価 × 利益率セル(M17)を1000円単位で切り上げた値」と
-一致するかをPythonで独立に計算し直して突き合わせる。
-一致しない場合は、テンプレートの数式が壊れている・利益率セルがずれている等の
+そこで得られた値が「仕入単価 × その行の実効上乗せ率を1000円単位で切り上げた値」と
+一致するかをPythonで独立に計算し直して突き合わせる。品目ごとに上乗せ率が
+異なりうるため、各行の実効上乗せ率はP列（印刷範囲外の参照用セル、
+fill_quote_templateが書き込む）から読み取る。
+一致しない場合は、テンプレートの数式が壊れている・値がずれている等の
 異常を早期に検知できる。
 
 使い方:
@@ -33,8 +35,9 @@ def run(quote_path: Path) -> bool:
         wb = openpyxl.load_workbook(recalced_path, data_only=True)
         ws = wb.active
 
-        margin_rate = ws["M17"].value
-        print(f"利益率設定 (M17): {margin_rate}（{(margin_rate - 1) * 100:.1f}%上乗せ）")
+        default_margin_rate = ws["M17"].value
+        print(f"デフォルト利益率設定 (M17): {default_margin_rate}"
+              f"（{(default_margin_rate - 1) * 100:.1f}%上乗せ、品目ごとに個別の率が設定されていれば別途表示）")
         print()
 
         all_ok = True
@@ -49,11 +52,12 @@ def run(quote_path: Path) -> bool:
             customer_amount = ws[f"G{row}"].value
             cost_amount = ws[f"O{row}"].value
             profit = ws[f"Q{row}"].value
+            item_markup_percent = ws[f"P{row}"].value
 
             if unit_cost is None:
                 continue  # この行は未使用
 
-            expected_unit_price = excel_roundup(unit_cost * margin_rate, ROUND_DIGITS)
+            expected_unit_price = excel_roundup(unit_cost * (1 + item_markup_percent / 100), ROUND_DIGITS)
             expected_amount = expected_unit_price * qty
             expected_profit = expected_amount - cost_amount
 
@@ -64,7 +68,7 @@ def run(quote_path: Path) -> bool:
             )
             all_ok = all_ok and ok
 
-            print(f"[{'OK' if ok else 'NG'}] {row}行目: {name}")
+            print(f"[{'OK' if ok else 'NG'}] {row}行目: {name}（上乗せ率{item_markup_percent}%）")
             print(f"      仕入単価={unit_cost:,.0f} × 数量{qty} → "
                   f"客先単価={customer_unit_price:,.0f}（期待値={expected_unit_price:,.0f}）")
             print(f"      客先金額={customer_amount:,.0f}（期待値={expected_amount:,.0f}） "

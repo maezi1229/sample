@@ -6,8 +6,13 @@ Excelアプリは起動しない。openpyxlでテンプレートファイルを�
 - 客先名・担当者名・件名（品名・物件名）・利益上乗せ率・備考は、
   仕入先PDFには書かれていない情報なので、Claudeがチャットで確認し、
   その回答をこのモジュールの引数として渡す。テンプレート側への事前入力は不要。
-- 客先単価は「仕入単価 × (1 + 上乗せ率%)」を1000円単位で切り上げて作成する
-  （例: F19 = ROUNDUP(N19*$M$17,-3)）。
+- 客先単価は「仕入単価 × (1 + 上乗せ率%)」を1000円単位で切り上げて作成する。
+  上乗せ率は品目ごとに個別指定できる（例: 材料費10%・加工費40%、のように
+  品目により率が異なるケース）。品目に上乗せ率が指定されなければ、
+  見積全体のデフォルト上乗せ率(markup_percent)を使う。
+  客先単価はPython側で計算し、F列にはその計算結果を値として書き込む
+  （品目ごとに率が異なりうるため、$M$17を参照する数式では表現できない。
+  M17には参考としてデフォルト上乗せ率のみを表示用に入れる）。
 - 見積有効期限は、この見積書の作成日（H3 = TODAY()）から+30日を自動計算する
   （C13に日付計算の数式を書き込むため、案件ごとに手入力しない）。
 - 明細行は 19-20行目=①, 21-22行目=②, 23-24行目=③ の3枠固定、
@@ -66,9 +71,10 @@ def _require(value, label: str, missing: list) -> None:
         missing.append(label)
 
 
-def _ensure_item_formulas(ws, row: int) -> None:
-    """単価・金額・仕入金額・利益の数式が入っていることを保証する（①行目のパターンに合わせる）。"""
-    ws[f"F{row}"] = f"=ROUNDUP(N{row}*{MARGIN_CELL_ABS},{ROUND_DIGITS})"
+def _set_item_formulas(ws, row: int, customer_unit_price: float) -> None:
+    """単価は品目ごとの上乗せ率で計算済みの値をそのまま入れ、金額・仕入金額・利益は数式で持たせる
+    （①行目のパターンに合わせる）。"""
+    ws[f"F{row}"] = customer_unit_price
     ws[f"G{row}"] = f"=E{row}*F{row}"
     ws[f"O{row}"] = f"=M{row}*N{row}"
     ws[f"Q{row}"] = f"=G{row}-O{row}"
@@ -101,8 +107,12 @@ def fill_quote_template(
     remarks_lines: list = None,
 ) -> Path:
     """
-    items: [{"qty": 数量, "unit_price": 仕入単価, "name": 品名(任意)}, ...] 最大3件まで。
-    markup_percent: 例えば9なら9%上乗せ（客先単価 = 仕入単価 * 1.09 を1000円単位で切り上げ）。
+    items: [{"qty": 数量, "unit_price": 仕入単価, "name": 品名(任意),
+             "markup_percent": 品目別の上乗せ率(任意、省略時はmarkup_percentを使う)}, ...]
+           最大3件まで。
+    markup_percent: 見積全体のデフォルト上乗せ率。例えば9なら9%上乗せ
+        （客先単価 = 仕入単価 * 1.09 を1000円単位で切り上げ）。品目ごとに
+        個別の上乗せ率が指定されていれば、その品目はそちらを優先する。
     remarks_lines: 仕入先見積の備考・注意事項をそのまま転記した行のリスト（チャットで事前確認済みのもの）。
     """
     missing = []
@@ -139,13 +149,24 @@ def fill_quote_template(
         qty = item["qty"]
         unit_price = item["unit_price"]
         cost_qty = item.get("cost_qty", qty)
+        item_markup_percent = item.get("markup_percent")
+        if item_markup_percent is None:
+            item_markup_percent = markup_percent
 
         ws[f"E{row}"] = qty
         ws[f"M{row}"] = cost_qty
         ws[f"N{row}"] = unit_price
         if item.get("name"):
             ws[f"C{row}"] = item["name"]
-        _ensure_item_formulas(ws, row)
+        customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
+        _set_item_formulas(ws, row, customer_unit_price)
+        # ②③の明細行（21-22, 23-24行目）はテンプレート側で初期状態は非表示になっている
+        # （未使用時に空欄が印刷されないようにするため）。品目を入れた行は表示に切り替える。
+        ws.row_dimensions[row].hidden = False
+        ws.row_dimensions[row + 1].hidden = False
+        # P列は印刷範囲(A1:J47)の外。この行の実効上乗せ率(%)をStep3の検算用に記録しておく
+        # （品目ごとに率が異なりうるため、M17だけでは各行の期待値を再現できない）。
+        ws[f"P{row}"] = item_markup_percent
 
     wb.save(output_path)
     return output_path

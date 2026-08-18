@@ -39,17 +39,21 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
     print(f"客先名: {confirmed.customer_name}")
     print(f"担当者名: {confirmed.contact_name}")
     print(f"件名: {confirmed.item_title}")
-    print(f"上乗せ率: {confirmed.markup_percent}%（1000円単位で切り上げ）")
+    print(f"デフォルト上乗せ率: {confirmed.markup_percent}%（1000円単位で切り上げ、品目別に個別指定があればそちらを優先）")
     print(f"明細: {len(confirmed.items)}件")
     for item in confirmed.items:
-        print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f}")
+        effective_rate = item.markup_percent if item.markup_percent is not None else confirmed.markup_percent
+        print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} 上乗せ率={effective_rate}%")
     print(f"備考: {len(confirmed.remarks_lines)}行")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / build_output_filename(confirmed.item_title)
 
-    items = [{"name": i.name, "qty": i.qty, "unit_price": i.unit_price} for i in confirmed.items]
+    items = [
+        {"name": i.name, "qty": i.qty, "unit_price": i.unit_price, "markup_percent": i.markup_percent}
+        for i in confirmed.items
+    ]
     result_path = fill_quote_template(
         template_path,
         output_path,
@@ -65,10 +69,17 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
     if not skip_ledger:
         cost_amount = sum(i.qty * i.unit_price for i in confirmed.items)
         sell_amount = sum(
-            i.qty * compute_customer_unit_price(i.unit_price, confirmed.markup_percent)
+            i.qty * compute_customer_unit_price(
+                i.unit_price,
+                i.markup_percent if i.markup_percent is not None else confirmed.markup_percent,
+            )
             for i in confirmed.items
         )
         profit_amount = sell_amount - cost_amount
+        # 品目ごとに上乗せ率が異なりうるため、集計表の利益率は「実際の利益÷仕入金額」で
+        # 計算した実効レートを記録する（品目別レートを個別に指定していなければ、
+        # 全品目共通のmarkup_percentと一致する）。
+        blended_profit_rate = (profit_amount / cost_amount * 100) if cost_amount else 0.0
         ledger_path = append_ledger_entry(
             config.LEDGER_PATH,
             date=datetime.date.today().strftime("%Y/%m/%d"),
@@ -79,7 +90,7 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
             item_title=confirmed.item_title,
             cost_amount=cost_amount,
             sell_amount=sell_amount,
-            profit_rate=confirmed.markup_percent,
+            profit_rate=round(blended_profit_rate, 2),
             profit_amount=profit_amount,
         )
         print(f"見積り集計表に追記しました: {ledger_path}")

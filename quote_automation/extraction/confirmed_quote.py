@@ -15,12 +15,17 @@ JSONスキーマ（以下はダミーデータの例。実在の客先名・仕�
   "markup_percent": 9,
   "remarks_lines": ["溶接仕上げは前回製作時と同様になります。", ...],
   "items": [
-    {"name": "ABC123_サンプル部品（１０×１０）", "qty": 3, "unit_price": 100000}
+    {"name": "ABC123_サンプル部品（１０×１０）", "qty": 3, "unit_price": 100000},
+    {"name": "ABC456_サンプル加工費", "qty": 8, "unit_price": 30000, "markup_percent": 40}
   ]
 }
 
 supplier_name / supplier_contact は見積書テンプレートには転記しない
 （自社見積書に仕入先名は出さない）。見積り集計表（分析用の記帳）にのみ使う。
+
+items[].markup_percent は任意。品目ごとに上乗せ率を変えたい場合（例:
+材料費は10%・加工費は40%、のように品目により率が異なる見積り）に指定する。
+省略した品目はトップレベルのmarkup_percent（見積全体のデフォルト）を使う。
 """
 import json
 from dataclasses import dataclass, field
@@ -36,6 +41,7 @@ class ConfirmedItem:
     name: str
     qty: float
     unit_price: float
+    markup_percent: float = None  # 未指定ならConfirmedQuote.markup_percent(全体デフォルト)を使う
 
 
 @dataclass
@@ -73,10 +79,12 @@ def load_confirmed_quote(json_path: Path) -> ConfirmedQuote:
     for raw in data["items"]:
         if raw.get("qty") is None or raw.get("unit_price") is None:
             raise InvalidConfirmedQuoteError(f"明細『{raw.get('name')}』の数量または単価が未確定です。")
+        item_markup = raw.get("markup_percent")
         items.append(ConfirmedItem(
             name=str(raw.get("name") or "").strip(),
             qty=float(raw["qty"]),
             unit_price=float(raw["unit_price"]),
+            markup_percent=float(item_markup) if item_markup is not None else None,
         ))
     if not items:
         raise InvalidConfirmedQuoteError("明細（品名・数量・単価）が1件も確定されていません。")
