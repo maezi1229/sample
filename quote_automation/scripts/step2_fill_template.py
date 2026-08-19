@@ -33,6 +33,15 @@ def build_output_filename(item_title: str) -> str:
     return f"【見積書】{safe_title}.xlsx"
 
 
+def effective_customer_unit_price(item, default_markup_percent: float) -> float:
+    """品目の客先単価を決定する。単価直接指定があればそれを優先し、
+    なければ品目別/全体デフォルトの上乗せ率から計算する。"""
+    if item.customer_unit_price is not None:
+        return item.customer_unit_price
+    rate = item.markup_percent if item.markup_percent is not None else default_markup_percent
+    return compute_customer_unit_price(item.unit_price, rate)
+
+
 def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_ledger: bool = False) -> Path:
     confirmed = load_confirmed_quote(confirmed_json_path)
 
@@ -42,8 +51,12 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
     print(f"デフォルト上乗せ率: {confirmed.markup_percent}%（1000円単位で切り上げ、品目別に個別指定があればそちらを優先）")
     print(f"明細: {len(confirmed.items)}件")
     for item in confirmed.items:
-        effective_rate = item.markup_percent if item.markup_percent is not None else confirmed.markup_percent
-        print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} 上乗せ率={effective_rate}%")
+        if item.customer_unit_price is not None:
+            print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} "
+                  f"客先単価={item.customer_unit_price:,.0f}（直接指定）")
+        else:
+            effective_rate = item.markup_percent if item.markup_percent is not None else confirmed.markup_percent
+            print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} 上乗せ率={effective_rate}%")
     print(f"備考: {len(confirmed.remarks_lines)}行")
 
     output_dir = Path(output_dir)
@@ -51,7 +64,13 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
     output_path = output_dir / build_output_filename(confirmed.item_title)
 
     items = [
-        {"name": i.name, "qty": i.qty, "unit_price": i.unit_price, "markup_percent": i.markup_percent}
+        {
+            "name": i.name,
+            "qty": i.qty,
+            "unit_price": i.unit_price,
+            "markup_percent": i.markup_percent,
+            "customer_unit_price": i.customer_unit_price,
+        }
         for i in confirmed.items
     ]
     result_path = fill_quote_template(
@@ -69,10 +88,7 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
     if not skip_ledger:
         cost_amount = sum(i.qty * i.unit_price for i in confirmed.items)
         sell_amount = sum(
-            i.qty * compute_customer_unit_price(
-                i.unit_price,
-                i.markup_percent if i.markup_percent is not None else confirmed.markup_percent,
-            )
+            i.qty * effective_customer_unit_price(i, confirmed.markup_percent)
             for i in confirmed.items
         )
         profit_amount = sell_amount - cost_amount

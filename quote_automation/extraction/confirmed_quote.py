@@ -16,7 +16,8 @@ JSONスキーマ（以下はダミーデータの例。実在の客先名・仕�
   "remarks_lines": ["溶接仕上げは前回製作時と同様になります。", ...],
   "items": [
     {"name": "ABC123_サンプル部品（１０×１０）", "qty": 3, "unit_price": 100000},
-    {"name": "ABC456_サンプル加工費", "qty": 8, "unit_price": 30000, "markup_percent": 40}
+    {"name": "ABC456_サンプル加工費", "qty": 8, "unit_price": 30000, "markup_percent": 40},
+    {"name": "ABC789_サンプル研磨費", "qty": 1, "unit_price": 150000, "customer_unit_price": 250000}
   ]
 }
 
@@ -26,6 +27,11 @@ supplier_name / supplier_contact は見積書テンプレートには転記し�
 items[].markup_percent は任意。品目ごとに上乗せ率を変えたい場合（例:
 材料費は10%・加工費は40%、のように品目により率が異なる見積り）に指定する。
 省略した品目はトップレベルのmarkup_percent（見積全体のデフォルト）を使う。
+
+items[].customer_unit_price は任意。「〇〇円ちょうどにして」のように、
+上乗せ率の計算ではなく客先単価を直接指定したい場合に使う。指定した品目は
+markup_percent（品目別・全体デフォルトいずれも）より優先され、上乗せ率の
+計算は行わずこの値をそのまま客先単価として使う。
 """
 import json
 from dataclasses import dataclass, field
@@ -42,6 +48,7 @@ class ConfirmedItem:
     qty: float
     unit_price: float
     markup_percent: float = None  # 未指定ならConfirmedQuote.markup_percent(全体デフォルト)を使う
+    customer_unit_price: float = None  # 指定時はmarkup_percentより優先し、この単価をそのまま使う
 
 
 @dataclass
@@ -80,11 +87,13 @@ def load_confirmed_quote(json_path: Path) -> ConfirmedQuote:
         if raw.get("qty") is None or raw.get("unit_price") is None:
             raise InvalidConfirmedQuoteError(f"明細『{raw.get('name')}』の数量または単価が未確定です。")
         item_markup = raw.get("markup_percent")
+        item_price_override = raw.get("customer_unit_price")
         items.append(ConfirmedItem(
             name=str(raw.get("name") or "").strip(),
             qty=float(raw["qty"]),
             unit_price=float(raw["unit_price"]),
             markup_percent=float(item_markup) if item_markup is not None else None,
+            customer_unit_price=float(item_price_override) if item_price_override is not None else None,
         ))
     if not items:
         raise InvalidConfirmedQuoteError("明細（品名・数量・単価）が1件も確定されていません。")

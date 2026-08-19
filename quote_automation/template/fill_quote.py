@@ -13,6 +13,9 @@ Excelアプリは起動しない。openpyxlでテンプレートファイルを�
   客先単価はPython側で計算し、F列にはその計算結果を値として書き込む
   （品目ごとに率が異なりうるため、$M$17を参照する数式では表現できない。
   M17には参考としてデフォルト上乗せ率のみを表示用に入れる）。
+- 「〇〇円ちょうどにして」のように上乗せ率ではなく客先単価そのものを
+  指定したい品目は、item["customer_unit_price"]で直接指定できる
+  （markup_percentより優先。上乗せ率の計算は行わずそのまま使う）。
 - 見積有効期限は、この見積書の作成日（H3 = TODAY()）から+30日を自動計算する
   （C13に日付計算の数式を書き込むため、案件ごとに手入力しない）。
 - 明細行は 19-20行目=①, 21-22行目=②, 23-24行目=③ の3枠固定、
@@ -108,7 +111,8 @@ def fill_quote_template(
 ) -> Path:
     """
     items: [{"qty": 数量, "unit_price": 仕入単価, "name": 品名(任意),
-             "markup_percent": 品目別の上乗せ率(任意、省略時はmarkup_percentを使う)}, ...]
+             "markup_percent": 品目別の上乗せ率(任意、省略時はmarkup_percentを使う),
+             "customer_unit_price": 客先単価を直接指定(任意、指定時はmarkup_percentより優先)}, ...]
            最大3件まで。
     markup_percent: 見積全体のデフォルト上乗せ率。例えば9なら9%上乗せ
         （客先単価 = 仕入単価 * 1.09 を1000円単位で切り上げ）。品目ごとに
@@ -149,16 +153,22 @@ def fill_quote_template(
         qty = item["qty"]
         unit_price = item["unit_price"]
         cost_qty = item.get("cost_qty", qty)
-        item_markup_percent = item.get("markup_percent")
-        if item_markup_percent is None:
-            item_markup_percent = markup_percent
+        price_override = item.get("customer_unit_price")
 
         ws[f"E{row}"] = qty
         ws[f"M{row}"] = cost_qty
         ws[f"N{row}"] = unit_price
         if item.get("name"):
             ws[f"C{row}"] = item["name"]
-        customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
+
+        if price_override is not None:
+            customer_unit_price = price_override
+            item_markup_percent = None  # 手動指定単価。Step3側では上乗せ率チェックを行わない
+        else:
+            item_markup_percent = item.get("markup_percent")
+            if item_markup_percent is None:
+                item_markup_percent = markup_percent
+            customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
         _set_item_formulas(ws, row, customer_unit_price)
         # ②③の明細行（21-22, 23-24行目）はテンプレート側で初期状態は非表示になっている
         # （未使用時に空欄が印刷されないようにするため）。品目を入れた行は表示に切り替える。
@@ -166,6 +176,8 @@ def fill_quote_template(
         ws.row_dimensions[row + 1].hidden = False
         # P列は印刷範囲(A1:J47)の外。この行の実効上乗せ率(%)をStep3の検算用に記録しておく
         # （品目ごとに率が異なりうるため、M17だけでは各行の期待値を再現できない）。
+        # 単価を直接指定した品目はNoneのままにし、Step3では上乗せ率ベースの検算を行わない
+        # （その場合はF列の値そのものが検算の基準になる）。
         ws[f"P{row}"] = item_markup_percent
 
     wb.save(output_path)

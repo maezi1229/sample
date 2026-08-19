@@ -57,9 +57,19 @@ def run(quote_path: Path) -> bool:
             if unit_cost is None:
                 continue  # この行は未使用
 
-            expected_unit_price = excel_roundup(unit_cost * (1 + item_markup_percent / 100), ROUND_DIGITS)
-            expected_amount = expected_unit_price * qty
-            expected_profit = expected_amount - cost_amount
+            if item_markup_percent is None:
+                # 客先単価を直接指定した品目（上乗せ率の計算を行っていない）。
+                # 独立に「期待される単価」を再現する手段がないため、F列の値を基準に
+                # 金額・利益の計算（G=E*F, Q=G-O）が正しいかだけを検証する。
+                expected_unit_price = customer_unit_price
+                expected_amount = expected_unit_price * qty
+                expected_profit = expected_amount - cost_amount
+                label = f"{row}行目: {name}（単価直接指定）"
+            else:
+                expected_unit_price = excel_roundup(unit_cost * (1 + item_markup_percent / 100), ROUND_DIGITS)
+                expected_amount = expected_unit_price * qty
+                expected_profit = expected_amount - cost_amount
+                label = f"{row}行目: {name}（上乗せ率{item_markup_percent}%）"
 
             ok = (
                 customer_unit_price == expected_unit_price
@@ -68,7 +78,7 @@ def run(quote_path: Path) -> bool:
             )
             all_ok = all_ok and ok
 
-            print(f"[{'OK' if ok else 'NG'}] {row}行目: {name}（上乗せ率{item_markup_percent}%）")
+            print(f"[{'OK' if ok else 'NG'}] {label}")
             print(f"      仕入単価={unit_cost:,.0f} × 数量{qty} → "
                   f"客先単価={customer_unit_price:,.0f}（期待値={expected_unit_price:,.0f}）")
             print(f"      客先金額={customer_amount:,.0f}（期待値={expected_amount:,.0f}） "
