@@ -147,6 +147,10 @@ Gitに残らないよう、以下を徹底しています。
 - `tesseract-ocr`, `tesseract-ocr-jpn`（OCR）
 - `libreoffice-calc`（数式再計算・PDF変換。Excelアプリは使わない）
 - `quote_automation/requirements.txt` のPythonライブラリ
+- `fonts-noto-cjk`＋`quote_automation/assets/fontconfig-local.conf`を`/etc/fonts/local.conf`に配置
+  （テンプレートが指定するWindows専用フォント「Meiryo UI」がこの環境には無いため、
+  見た目の近いNoto Sans CJK JPに差し替える。入れないとPDF変換時にフォントが
+  意図しないものにフォールバックし、会社PCのExcelで見た時と印象が変わる）
 
 このフックは同期実行（セッション開始がインストール完了を待つ）。起動を速くしたい
 場合は非同期モードに変更できるが、その場合はインストール未完了のままスクリプトが
