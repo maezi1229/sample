@@ -39,6 +39,9 @@ REMARKS_LAST_ROW = 44  # 印刷範囲(A1:J47)に収まる範囲でここまで�
 VALIDITY_CELL = "C13"
 VALIDITY_FORMULA = '="見積有効期限         ："&TEXT(H3+30,"yyyy年m月d日")'
 
+DELIVERY_CELL = "C15"
+DELIVERY_LABEL = "納期" + "　" * 9  # 他の項目ラベル（受渡場所・決済条件等）と見た目の位置を合わせるための調整
+
 
 class TooManyItemsError(Exception):
     pass
@@ -83,6 +86,24 @@ def _set_item_formulas(ws, row: int, customer_unit_price: float) -> None:
     ws[f"Q{row}"] = f"=G{row}-O{row}"
 
 
+def _set_delivery_note(ws, text: str) -> None:
+    """納期はテンプレートに常設のフィールドではなく、指定があった案件だけ
+    C15に追加する（未指定の見積は従来通り何も表示しない）。見た目を
+    受渡場所・決済条件などの既存フィールドに合わせるため、C14のスタイルを
+    そのままコピーしてから文言を書き込む。"""
+    from copy import copy
+
+    src = ws["C14"]
+    dst = ws[DELIVERY_CELL]
+    dst.font = copy(src.font)
+    dst.border = copy(src.border)
+    dst.alignment = copy(src.alignment)
+    dst.fill = copy(src.fill)
+    if not any(m.coord == "C15:D15" for m in ws.merged_cells.ranges):
+        ws.merge_cells("C15:D15")
+    dst.value = f"{DELIVERY_LABEL}：{text}"
+
+
 def _set_remarks(ws, lines: list) -> None:
     max_lines = REMARKS_LAST_ROW - REMARKS_FIRST_ROW + 1
     if len(lines) > max_lines:
@@ -108,6 +129,7 @@ def fill_quote_template(
     markup_percent: float,
     items: list,
     remarks_lines: list = None,
+    delivery_note: str = None,
 ) -> Path:
     """
     items: [{"qty": 数量, "unit_price": 仕入単価, "name": 品名(任意),
@@ -118,6 +140,7 @@ def fill_quote_template(
         （客先単価 = 仕入単価 * 1.09 を1000円単位で切り上げ）。品目ごとに
         個別の上乗せ率が指定されていれば、その品目はそちらを優先する。
     remarks_lines: 仕入先見積の備考・注意事項をそのまま転記した行のリスト（チャットで事前確認済みのもの）。
+    delivery_note: 納期（例:「製品ご支給後、約2週間」）。指定があった案件だけ表示する。
     """
     missing = []
     _require(customer_name, "客先名", missing)
@@ -147,6 +170,8 @@ def fill_quote_template(
     ws["D10"] = item_title
     ws["M17"] = 1 + markup_percent / 100
     ws[VALIDITY_CELL] = VALIDITY_FORMULA
+    if delivery_note:
+        _set_delivery_note(ws, delivery_note)
     _set_remarks(ws, remarks_lines or [])
 
     for row, item in zip(ITEM_ROWS, items):

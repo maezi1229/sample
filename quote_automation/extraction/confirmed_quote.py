@@ -13,6 +13,7 @@ JSONスキーマ（以下はダミーデータの例。実在の客先名・仕�
   "supplier_contact": "田中",
   "item_title": "ABC123_サンプル部品（１０×１０）",
   "markup_percent": 9,
+  "delivery_note": "製品ご支給後、約2週間",
   "remarks_lines": ["溶接仕上げは前回製作時と同様になります。", ...],
   "items": [
     {"name": "ABC123_サンプル部品（１０×１０）", "qty": 3, "unit_price": 100000},
@@ -32,6 +33,10 @@ items[].customer_unit_price は任意。「〇〇円ちょうどにして」の�
 上乗せ率の計算ではなく客先単価を直接指定したい場合に使う。指定した品目は
 markup_percent（品目別・全体デフォルトいずれも）より優先され、上乗せ率の
 計算は行わずこの値をそのまま客先単価として使う。
+
+delivery_note（トップレベル）は任意。「製品ご支給後、約2週間」のように
+納期を指定したい場合に使う。省略した場合は見積書に納期欄自体を表示しない
+（従来通りの見た目になる）。
 """
 import json
 from dataclasses import dataclass, field
@@ -61,6 +66,7 @@ class ConfirmedQuote:
     remarks_lines: list = field(default_factory=list)
     supplier_name: str = ""
     supplier_contact: str = ""
+    delivery_note: str = ""
 
 
 REQUIRED_TOP_LEVEL_KEYS = (
@@ -107,4 +113,5 @@ def load_confirmed_quote(json_path: Path) -> ConfirmedQuote:
         remarks_lines=list(data.get("remarks_lines") or []),
         supplier_name=str(data.get("supplier_name") or "").strip(),
         supplier_contact=str(data.get("supplier_contact") or "").strip(),
+        delivery_note=str(data.get("delivery_note") or "").strip(),
     )

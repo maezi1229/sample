@@ -58,6 +58,8 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
             effective_rate = item.markup_percent if item.markup_percent is not None else confirmed.markup_percent
             print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} 上乗せ率={effective_rate}%")
     print(f"備考: {len(confirmed.remarks_lines)}行")
+    if confirmed.delivery_note:
+        print(f"納期: {confirmed.delivery_note}")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -82,6 +84,7 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
         markup_percent=confirmed.markup_percent,
         items=items,
         remarks_lines=confirmed.remarks_lines,
+        delivery_note=confirmed.delivery_note or None,
     )
     print(f"転記済み見積書を出力しました: {result_path}")
 
