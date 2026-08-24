@@ -60,21 +60,30 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
     print(f"備考: {len(confirmed.remarks_lines)}行")
     if confirmed.delivery_note:
         print(f"納期: {confirmed.delivery_note}")
+    if confirmed.freight:
+        f = confirmed.freight
+        if f.customer_unit_price is not None:
+            print(f"運賃: {f.name} 数量={f.qty} 仕入単価={f.unit_price:,.0f} 客先単価={f.customer_unit_price:,.0f}（直接指定）")
+        else:
+            rate = f.markup_percent if f.markup_percent is not None else confirmed.markup_percent
+            print(f"運賃: {f.name} 数量={f.qty} 仕入単価={f.unit_price:,.0f} 上乗せ率={rate}%")
+        print(f"運賃条件表記: {confirmed.freight_terms}")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / build_output_filename(confirmed.item_title)
 
-    items = [
-        {
+    def to_item_dict(i):
+        return {
             "name": i.name,
             "qty": i.qty,
             "unit_price": i.unit_price,
             "markup_percent": i.markup_percent,
             "customer_unit_price": i.customer_unit_price,
         }
-        for i in confirmed.items
-    ]
+
+    items = [to_item_dict(i) for i in confirmed.items]
+    freight_dict = to_item_dict(confirmed.freight) if confirmed.freight else None
     result_path = fill_quote_template(
         template_path,
         output_path,
@@ -85,14 +94,17 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
         items=items,
         remarks_lines=confirmed.remarks_lines,
         delivery_note=confirmed.delivery_note or None,
+        freight=freight_dict,
+        freight_terms=confirmed.freight_terms,
     )
     print(f"転記済み見積書を出力しました: {result_path}")
 
     if not skip_ledger:
-        cost_amount = sum(i.qty * i.unit_price for i in confirmed.items)
+        all_priced_rows = list(confirmed.items) + ([confirmed.freight] if confirmed.freight else [])
+        cost_amount = sum(i.qty * i.unit_price for i in all_priced_rows)
         sell_amount = sum(
             i.qty * effective_customer_unit_price(i, confirmed.markup_percent)
-            for i in confirmed.items
+            for i in all_priced_rows
         )
         profit_amount = sell_amount - cost_amount
         # 品目ごとに上乗せ率が異なりうるため、集計表の利益率は「実際の利益÷仕入金額」で

@@ -19,7 +19,7 @@ from pathlib import Path
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from quote_automation.template.fill_quote import ITEM_ROWS, ROUND_DIGITS, excel_roundup
+from quote_automation.template.fill_quote import FREIGHT_ROW, ITEM_ROWS, ROUND_DIGITS, excel_roundup
 from quote_automation.template.recalc import recalculate_with_libreoffice
 
 
@@ -44,7 +44,7 @@ def run(quote_path: Path) -> bool:
         total_customer = 0.0
         total_profit = 0.0
 
-        for row in ITEM_ROWS:
+        for row in ITEM_ROWS + (FREIGHT_ROW,):
             name = ws[f"C{row}"].value
             qty = ws[f"E{row}"].value
             unit_cost = ws[f"N{row}"].value

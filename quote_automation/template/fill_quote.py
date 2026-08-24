@@ -30,8 +30,12 @@ from pathlib import Path
 import openpyxl
 
 ITEM_ROWS = (19, 21, 23)  # 明細行の先頭行（各ブロック2行分をマージしている）
+FREIGHT_ROW = 25  # 運賃専用行。テンプレート側でC25="運賃"・数量1が既定済み
 MARGIN_CELL_ABS = "$M$17"  # 利益率セル（例: 1.09 = 9%上乗せ）
 ROUND_DIGITS = -3  # 客先単価の丸め桁（-3 = 1000円単位）
+
+FREIGHT_TERMS_CELL = "C14"
+DEFAULT_FREIGHT_TERMS = "運賃込み価格"  # 「送料は別途」等、案件に応じて上書きできる
 
 REMARKS_FIRST_ROW = 34
 REMARKS_LAST_ROW = 44  # 印刷範囲(A1:J47)に収まる範囲でここまで拡張可能
@@ -86,6 +90,35 @@ def _set_item_formulas(ws, row: int, customer_unit_price: float) -> None:
     ws[f"Q{row}"] = f"=G{row}-O{row}"
 
 
+def _apply_priced_row(ws, row: int, item: dict, default_markup_percent: float) -> None:
+    """1行分（明細行または運賃行）に、数量・仕入単価・客先単価を書き込む共通処理。"""
+    qty = item["qty"]
+    unit_price = item["unit_price"]
+    cost_qty = item.get("cost_qty", qty)
+    price_override = item.get("customer_unit_price")
+
+    ws[f"E{row}"] = qty
+    ws[f"M{row}"] = cost_qty
+    ws[f"N{row}"] = unit_price
+    if item.get("name"):
+        ws[f"C{row}"] = item["name"]
+
+    if price_override is not None:
+        customer_unit_price = price_override
+        item_markup_percent = None  # 手動指定単価。Step3側では上乗せ率チェックを行わない
+    else:
+        item_markup_percent = item.get("markup_percent")
+        if item_markup_percent is None:
+            item_markup_percent = default_markup_percent
+        customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
+    _set_item_formulas(ws, row, customer_unit_price)
+    # P列は印刷範囲(A1:J47)の外。この行の実効上乗せ率(%)をStep3の検算用に記録しておく
+    # （品目ごとに率が異なりうるため、M17だけでは各行の期待値を再現できない）。
+    # 単価を直接指定した品目はNoneのままにし、Step3では上乗せ率ベースの検算を行わない
+    # （その場合はF列の値そのものが検算の基準になる）。
+    ws[f"P{row}"] = item_markup_percent
+
+
 def _set_delivery_note(ws, text: str) -> None:
     """納期はテンプレートに常設のフィールドではなく、指定があった案件だけ
     C15に追加する（未指定の見積は従来通り何も表示しない）。見た目を
@@ -130,6 +163,8 @@ def fill_quote_template(
     items: list,
     remarks_lines: list = None,
     delivery_note: str = None,
+    freight: dict = None,
+    freight_terms: str = DEFAULT_FREIGHT_TERMS,
 ) -> Path:
     """
     items: [{"qty": 数量, "unit_price": 仕入単価, "name": 品名(任意),
@@ -141,6 +176,12 @@ def fill_quote_template(
         個別の上乗せ率が指定されていれば、その品目はそちらを優先する。
     remarks_lines: 仕入先見積の備考・注意事項をそのまま転記した行のリスト（チャットで事前確認済みのもの）。
     delivery_note: 納期（例:「製品ご支給後、約2週間」）。指定があった案件だけ表示する。
+    freight: 運賃を明細と別立てにしたい場合に指定する
+        {"qty": 数量(省略時1), "unit_price": 仕入単価, "name": 品目名(省略時「運賃」),
+         "markup_percent": 任意, "customer_unit_price": 任意}。
+        テンプレート専用の運賃行（25行目）に書き込む（明細3件枠とは別）。
+    freight_terms: 見積条件欄の運賃表記（既定は「運賃込み価格」）。運賃を明細で
+        別立てにする場合は「別途運賃」等に変更する。
     """
     missing = []
     _require(customer_name, "客先名", missing)
@@ -170,40 +211,23 @@ def fill_quote_template(
     ws["D10"] = item_title
     ws["M17"] = 1 + markup_percent / 100
     ws[VALIDITY_CELL] = VALIDITY_FORMULA
+    ws[FREIGHT_TERMS_CELL] = f"備考：{freight_terms}"
     if delivery_note:
         _set_delivery_note(ws, delivery_note)
     _set_remarks(ws, remarks_lines or [])
 
     for row, item in zip(ITEM_ROWS, items):
-        qty = item["qty"]
-        unit_price = item["unit_price"]
-        cost_qty = item.get("cost_qty", qty)
-        price_override = item.get("customer_unit_price")
-
-        ws[f"E{row}"] = qty
-        ws[f"M{row}"] = cost_qty
-        ws[f"N{row}"] = unit_price
-        if item.get("name"):
-            ws[f"C{row}"] = item["name"]
-
-        if price_override is not None:
-            customer_unit_price = price_override
-            item_markup_percent = None  # 手動指定単価。Step3側では上乗せ率チェックを行わない
-        else:
-            item_markup_percent = item.get("markup_percent")
-            if item_markup_percent is None:
-                item_markup_percent = markup_percent
-            customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
-        _set_item_formulas(ws, row, customer_unit_price)
+        _apply_priced_row(ws, row, item, markup_percent)
         # ②③の明細行（21-22, 23-24行目）はテンプレート側で初期状態は非表示になっている
         # （未使用時に空欄が印刷されないようにするため）。品目を入れた行は表示に切り替える。
         ws.row_dimensions[row].hidden = False
         ws.row_dimensions[row + 1].hidden = False
-        # P列は印刷範囲(A1:J47)の外。この行の実効上乗せ率(%)をStep3の検算用に記録しておく
-        # （品目ごとに率が異なりうるため、M17だけでは各行の期待値を再現できない）。
-        # 単価を直接指定した品目はNoneのままにし、Step3では上乗せ率ベースの検算を行わない
-        # （その場合はF列の値そのものが検算の基準になる）。
-        ws[f"P{row}"] = item_markup_percent
+
+    if freight:
+        freight_item = dict(freight)
+        freight_item.setdefault("qty", 1)
+        _apply_priced_row(ws, FREIGHT_ROW, freight_item, markup_percent)
+        ws.row_dimensions[FREIGHT_ROW].hidden = False
 
     wb.save(output_path)
     return output_path
