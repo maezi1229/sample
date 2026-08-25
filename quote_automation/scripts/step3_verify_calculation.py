@@ -19,7 +19,7 @@ from pathlib import Path
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from quote_automation.template.fill_quote import FREIGHT_ROW, ITEM_ROWS, ROUND_DIGITS, excel_roundup
+from quote_automation.template.fill_quote import FREIGHT_ROW, ITEM_ROWS, ROUND_DIGITS, TOTAL_ROW, excel_roundup
 from quote_automation.template.recalc import recalculate_with_libreoffice
 
 
@@ -87,8 +87,8 @@ def run(quote_path: Path) -> bool:
             total_customer += customer_amount
             total_profit += profit or 0
 
-        grand_total = ws["G26"].value
-        grand_profit = ws["Q26"].value
+        grand_total = ws[f"G{TOTAL_ROW}"].value
+        grand_profit = ws[f"Q{TOTAL_ROW}"].value
         totals_ok = (
             abs(grand_total - total_customer) < 1e-6
             and abs(grand_profit - total_profit) < 1e-6

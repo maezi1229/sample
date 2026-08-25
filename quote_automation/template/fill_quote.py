@@ -18,10 +18,12 @@ Excelアプリは起動しない。openpyxlでテンプレートファイルを�
   （markup_percentより優先。上乗せ率の計算は行わずそのまま使う）。
 - 見積有効期限は、この見積書の作成日（H3 = TODAY()）から+30日を自動計算する
   （C13に日付計算の数式を書き込むため、案件ごとに手入力しない）。
-- 明細行は 19-20行目=①, 21-22行目=②, 23-24行目=③ の3枠固定、
-  25行目は運賃専用（このモジュールでは変更しない）。
-- 備考欄は34〜44行目を使う（29〜33行目は別用途の非表示行のため使わない。
-  詳細はREADME参照）。
+- 明細行は19行目から2行1組×17枠（①〜⑰、19-20,21-22,...,51-52行目）、
+  53行目は運賃専用（このモジュールでは通常変更しない）。この枠数は
+  quote_automation/scripts/_rebuild_template_for_n_items.py で
+  base_quote_template.xlsxを再構築して作った数。さらに増やす場合は
+  そのスクリプトのN_ITEMSを変えて再実行し、このファイルの行定数も合わせて直す。
+- 備考欄は57〜67行目を使う（詳細はREADME参照）。
 """
 import math
 import shutil
@@ -29,16 +31,17 @@ from pathlib import Path
 
 import openpyxl
 
-ITEM_ROWS = (19, 21, 23)  # 明細行の先頭行（各ブロック2行分をマージしている）
-FREIGHT_ROW = 25  # 運賃専用行。テンプレート側でC25="運賃"・数量1が既定済み
+ITEM_ROWS = tuple(range(19, 52, 2))  # 明細行の先頭行（各ブロック2行分をマージしている）。19,21,...,51 の17枠
+FREIGHT_ROW = 53  # 運賃専用行。テンプレート側でC53="運賃"・数量1が既定済み
+TOTAL_ROW = 54  # 合計行（G54=SUM(G19:G53), Q54=SUM(Q19:Q53)）
 MARGIN_CELL_ABS = "$M$17"  # 利益率セル（例: 1.09 = 9%上乗せ）
 ROUND_DIGITS = -3  # 客先単価の丸め桁（-3 = 1000円単位）
 
 FREIGHT_TERMS_CELL = "C14"
 DEFAULT_FREIGHT_TERMS = "運賃込み価格"  # 「送料は別途」等、案件に応じて上書きできる
 
-REMARKS_FIRST_ROW = 34
-REMARKS_LAST_ROW = 44  # 印刷範囲(A1:J47)に収まる範囲でここまで拡張可能
+REMARKS_FIRST_ROW = 57
+REMARKS_LAST_ROW = 67  # 印刷範囲内に収まる範囲でここまで拡張可能
 
 VALIDITY_CELL = "C13"
 VALIDITY_FORMULA = '="見積有効期限         ："&TEXT(H3+30,"yyyy年m月d日")'
@@ -179,7 +182,7 @@ def fill_quote_template(
     freight: 運賃を明細と別立てにしたい場合に指定する
         {"qty": 数量(省略時1), "unit_price": 仕入単価, "name": 品目名(省略時「運賃」),
          "markup_percent": 任意, "customer_unit_price": 任意}。
-        テンプレート専用の運賃行（25行目）に書き込む（明細3件枠とは別）。
+        テンプレート専用の運賃行（FREIGHT_ROW）に書き込む（明細枠とは別）。
     freight_terms: 見積条件欄の運賃表記（既定は「運賃込み価格」）。運賃を明細で
         別立てにする場合は「別途運賃」等に変更する。
     """
@@ -218,7 +221,7 @@ def fill_quote_template(
 
     for row, item in zip(ITEM_ROWS, items):
         _apply_priced_row(ws, row, item, markup_percent)
-        # ②③の明細行（21-22, 23-24行目）はテンプレート側で初期状態は非表示になっている
+        # ①以外の明細行はテンプレート側で初期状態は非表示になっている
         # （未使用時に空欄が印刷されないようにするため）。品目を入れた行は表示に切り替える。
         ws.row_dimensions[row].hidden = False
         ws.row_dimensions[row + 1].hidden = False
