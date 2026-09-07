@@ -169,9 +169,8 @@ def _set_remarks(ws, lines: list) -> None:
         ws.row_dimensions[row].hidden = False
 
 
-def fill_quote_template(
-    template_path: Path,
-    output_path: Path,
+def fill_quote_sheet(
+    ws,
     *,
     customer_name: str,
     contact_name: str,
@@ -185,12 +184,17 @@ def fill_quote_template(
     receiving_place: str = DEFAULT_RECEIVING_PLACE,
     payment_terms: str = DEFAULT_PAYMENT_TERMS,
     inspection_terms: str = None,
-) -> Path:
+) -> None:
     """
+    既に開いている1枚のシートに、確定済みの見積データを書き込む
+    （ファイルの読み書きは行わない）。fill_quote_templateの中核処理であり、
+    1つのブックに複数案（シート）をまとめたい場合はこちらを直接、
+    シートごとに呼び出す（fill_quote_workbook参照）。
+
     items: [{"qty": 数量, "unit_price": 仕入単価, "name": 品名(任意),
              "markup_percent": 品目別の上乗せ率(任意、省略時はmarkup_percentを使う),
              "customer_unit_price": 客先単価を直接指定(任意、指定時はmarkup_percentより優先)}, ...]
-           最大3件まで。
+           最大17件まで。
     markup_percent: 見積全体のデフォルト上乗せ率。例えば9なら9%上乗せ
         （客先単価 = 仕入単価 * 1.09 を1000円単位で切り上げ）。品目ごとに
         個別の上乗せ率が指定されていれば、その品目はそちらを優先する。
@@ -224,13 +228,6 @@ def fill_quote_template(
             f"テンプレートの明細枠は{len(ITEM_ROWS)}件までです（{len(items)}件指定されました）。"
         )
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(template_path, output_path)
-
-    wb = openpyxl.load_workbook(output_path)
-    ws = wb.active
-
     ws["B2"] = customer_name
     ws["B3"] = contact_name
     ws["D10"] = item_title
@@ -258,5 +255,56 @@ def fill_quote_template(
         _apply_priced_row(ws, FREIGHT_ROW, freight_item, markup_percent)
         ws.row_dimensions[FREIGHT_ROW].hidden = False
 
+
+def fill_quote_template(template_path: Path, output_path: Path, **kwargs) -> Path:
+    """テンプレートファイルを1件分の見積データで埋め、単独のxlsxとして保存する。
+    kwargsはfill_quote_sheet()と同じ（customer_name, items等）。"""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(template_path, output_path)
+
+    wb = openpyxl.load_workbook(output_path)
+    fill_quote_sheet(wb.active, **kwargs)
+
+    wb.save(output_path)
+    return output_path
+
+
+def fill_quote_workbook(template_path: Path, output_path: Path, sheets: list) -> Path:
+    """上乗せ率違いの複数案などを1つのブックに複数シートとしてまとめて保存する。
+
+    sheets: [{"sheet_name": "当初案", **fill_quote_sheet()と同じキーワード引数}, ...]
+        1件以上。1件目はテンプレート本来のシートを使い、2件目以降は
+        wb.copy_worksheet()でシートを複製してから埋める。
+    """
+    if not sheets:
+        raise ValueError("sheetsは1件以上指定してください。")
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(template_path, output_path)
+
+    wb = openpyxl.load_workbook(output_path)
+    base_ws = wb.active
+    # ws.print_area はワークシート単体の属性ではなく、シートに紐づいた
+    # 名前付き範囲（_xlnm.Print_Area）として保存されているため、
+    # wb.copy_worksheet()では複製先のシートに引き継がれない。セル範囲部分
+    # （シート名を除く "$A$1:$J$70" 等）だけ取り出し、複製後に明示的に設定し直す。
+    print_area_range = base_ws.print_area.split("!")[-1] if base_ws.print_area else None
+
+    for i, sheet_kwargs in enumerate(sheets):
+        sheet_kwargs = dict(sheet_kwargs)
+        sheet_name = sheet_kwargs.pop("sheet_name", None)
+        if i == 0:
+            ws = base_ws
+        else:
+            ws = wb.copy_worksheet(base_ws)
+            if print_area_range:
+                ws.print_area = print_area_range
+        if sheet_name:
+            ws.title = sheet_name
+        fill_quote_sheet(ws, **sheet_kwargs)
+
+    wb.active = 0
     wb.save(output_path)
     return output_path
