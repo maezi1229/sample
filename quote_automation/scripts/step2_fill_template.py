@@ -58,6 +58,12 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
             effective_rate = item.markup_percent if item.markup_percent is not None else confirmed.markup_percent
             print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} 上乗せ率={effective_rate}%")
     print(f"備考: {len(confirmed.remarks_lines)}行")
+    if confirmed.receiving_place != "貴社車上渡し":
+        print(f"受渡場所及び条件: {confirmed.receiving_place}")
+    if confirmed.payment_terms != "従来通り":
+        print(f"決済条件: {confirmed.payment_terms}")
+    if confirmed.inspection_terms:
+        print(f"検収条件: {confirmed.inspection_terms}")
     if confirmed.delivery_note:
         print(f"納期: {confirmed.delivery_note}")
     if confirmed.freight:
@@ -96,6 +102,9 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
         delivery_note=confirmed.delivery_note or None,
         freight=freight_dict,
         freight_terms=confirmed.freight_terms,
+        receiving_place=confirmed.receiving_place,
+        payment_terms=confirmed.payment_terms,
+        inspection_terms=confirmed.inspection_terms or None,
     )
     print(f"転記済み見積書を出力しました: {result_path}")
 

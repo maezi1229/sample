@@ -46,8 +46,19 @@ REMARKS_LAST_ROW = 67  # 印刷範囲内に収まる範囲でここまで拡張�
 VALIDITY_CELL = "C13"
 VALIDITY_FORMULA = '="見積有効期限         ："&TEXT(H3+30,"yyyy年m月d日")'
 
+RECEIVING_CELL = "C11"
+RECEIVING_LABEL = "受渡場所　及び条件　"
+DEFAULT_RECEIVING_PLACE = "貴社車上渡し"
+
+PAYMENT_TERMS_CELL = "C12"
+PAYMENT_TERMS_LABEL = "決済条件               "
+DEFAULT_PAYMENT_TERMS = "従来通り"
+
 DELIVERY_CELL = "C15"
 DELIVERY_LABEL = "納期" + "　" * 9  # 他の項目ラベル（受渡場所・決済条件等）と見た目の位置を合わせるための調整
+
+INSPECTION_CELL = "C16"
+INSPECTION_LABEL = "検収条件" + "　" * 7
 
 
 class TooManyItemsError(Exception):
@@ -122,22 +133,25 @@ def _apply_priced_row(ws, row: int, item: dict, default_markup_percent: float) -
     ws[f"P{row}"] = item_markup_percent
 
 
-def _set_delivery_note(ws, text: str) -> None:
-    """納期はテンプレートに常設のフィールドではなく、指定があった案件だけ
-    C15に追加する（未指定の見積は従来通り何も表示しない）。見た目を
+def _set_optional_terms_row(ws, cell_coord: str, label: str, text: str) -> None:
+    """納期・検収条件など、テンプレートに常設ではなく指定があった案件だけ追加する
+    行に書き込む共通処理（未指定の見積は従来通り何も表示しない）。見た目を
     受渡場所・決済条件などの既存フィールドに合わせるため、C14のスタイルを
     そのままコピーしてから文言を書き込む。"""
     from copy import copy
 
     src = ws["C14"]
-    dst = ws[DELIVERY_CELL]
+    dst = ws[cell_coord]
     dst.font = copy(src.font)
     dst.border = copy(src.border)
     dst.alignment = copy(src.alignment)
     dst.fill = copy(src.fill)
-    if not any(m.coord == "C15:D15" for m in ws.merged_cells.ranges):
-        ws.merge_cells("C15:D15")
-    dst.value = f"{DELIVERY_LABEL}：{text}"
+    row = dst.row
+    merge_rng = f"C{row}:D{row}"
+    if not any(m.coord == merge_rng for m in ws.merged_cells.ranges):
+        ws.merge_cells(merge_rng)
+    ws.row_dimensions[row].height = ws.row_dimensions[14].height
+    dst.value = f"{label}：{text}"
 
 
 def _set_remarks(ws, lines: list) -> None:
@@ -168,6 +182,9 @@ def fill_quote_template(
     delivery_note: str = None,
     freight: dict = None,
     freight_terms: str = DEFAULT_FREIGHT_TERMS,
+    receiving_place: str = DEFAULT_RECEIVING_PLACE,
+    payment_terms: str = DEFAULT_PAYMENT_TERMS,
+    inspection_terms: str = None,
 ) -> Path:
     """
     items: [{"qty": 数量, "unit_price": 仕入単価, "name": 品名(任意),
@@ -185,6 +202,11 @@ def fill_quote_template(
         テンプレート専用の運賃行（FREIGHT_ROW）に書き込む（明細枠とは別）。
     freight_terms: 見積条件欄の運賃表記（既定は「運賃込み価格」）。運賃を明細で
         別立てにする場合は「別途運賃」等に変更する。
+    receiving_place: 受渡場所及び条件（既定は「貴社車上渡し」）。客先ごとに
+        決まった条件がある場合はそちらに置き換える。
+    payment_terms: 決済条件（既定は「従来通り」）。客先ごとに決まった条件が
+        ある場合はそちらに置き換える。
+    inspection_terms: 検収条件。指定があった案件だけ表示する（既定では欄自体を表示しない）。
     """
     missing = []
     _require(customer_name, "客先名", missing)
@@ -214,9 +236,13 @@ def fill_quote_template(
     ws["D10"] = item_title
     ws["M17"] = 1 + markup_percent / 100
     ws[VALIDITY_CELL] = VALIDITY_FORMULA
+    ws[RECEIVING_CELL] = f"{RECEIVING_LABEL}：{receiving_place}"
+    ws[PAYMENT_TERMS_CELL] = f"{PAYMENT_TERMS_LABEL}：{payment_terms}"
     ws[FREIGHT_TERMS_CELL] = f"備考：{freight_terms}"
     if delivery_note:
-        _set_delivery_note(ws, delivery_note)
+        _set_optional_terms_row(ws, DELIVERY_CELL, DELIVERY_LABEL, delivery_note)
+    if inspection_terms:
+        _set_optional_terms_row(ws, INSPECTION_CELL, INSPECTION_LABEL, inspection_terms)
     _set_remarks(ws, remarks_lines or [])
 
     for row, item in zip(ITEM_ROWS, items):

@@ -21,7 +21,10 @@ JSONスキーマ（以下はダミーデータの例。実在の客先名・仕�
     {"name": "ABC789_サンプル研磨費", "qty": 1, "unit_price": 150000, "customer_unit_price": 250000}
   ],
   "freight": {"unit_price": 1500, "customer_unit_price": 2000},
-  "freight_terms": "別途運賃"
+  "freight_terms": "別途運賃",
+  "receiving_place": "客先工場（車上渡し）",
+  "payment_terms": "検収月末締め翌月末振込",
+  "inspection_terms": "搬入・試運転調整渡し"
 }
 
 supplier_name / supplier_contact は見積書テンプレートには転記しない
@@ -40,11 +43,17 @@ delivery_note（トップレベル）は任意。「製品ご支給後、約2週
 納期を指定したい場合に使う。省略した場合は見積書に納期欄自体を表示しない
 （従来通りの見た目になる）。
 
-freight（トップレベル）は任意。運賃を明細（items、最大3件）とは別立てで
+freight（トップレベル）は任意。運賃を明細（items、最大17件）とは別立てで
 表示したい場合に使う。スキーマはitemsの要素と同じ（name省略時は「運賃」、
 qty省略時は1）。指定しなければ従来通り運賃欄は表示しない。
 freight_terms（トップレベル）は任意。見積条件欄の運賃表記（既定は
 「運賃込み価格」）。freightで運賃を別立てにする場合は「別途運賃」等に変更する。
+
+receiving_place / payment_terms（トップレベル）は任意。既定はそれぞれ
+「貴社車上渡し」「従来通り」。客先ごとに決まった受渡場所・決済条件が
+ある場合はそちらを指定する。
+inspection_terms（トップレベル）は任意。検収条件を指定したい場合に使う。
+省略した場合は見積書に検収条件欄自体を表示しない。
 """
 import json
 from dataclasses import dataclass, field
@@ -77,6 +86,9 @@ class ConfirmedQuote:
     delivery_note: str = ""
     freight: ConfirmedItem = None  # 運賃を明細と別立てにする場合のみ
     freight_terms: str = "運賃込み価格"
+    receiving_place: str = "貴社車上渡し"
+    payment_terms: str = "従来通り"
+    inspection_terms: str = ""
 
 
 REQUIRED_TOP_LEVEL_KEYS = (
@@ -135,4 +147,7 @@ def load_confirmed_quote(json_path: Path) -> ConfirmedQuote:
         delivery_note=str(data.get("delivery_note") or "").strip(),
         freight=freight,
         freight_terms=str(data.get("freight_terms") or "運賃込み価格").strip(),
+        receiving_place=str(data.get("receiving_place") or "貴社車上渡し").strip(),
+        payment_terms=str(data.get("payment_terms") or "従来通り").strip(),
+        inspection_terms=str(data.get("inspection_terms") or "").strip(),
     )
