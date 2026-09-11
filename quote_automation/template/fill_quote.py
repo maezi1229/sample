@@ -30,6 +30,7 @@ import shutil
 from pathlib import Path
 
 import openpyxl
+from openpyxl.styles import Border
 
 ITEM_ROWS = tuple(range(19, 52, 2))  # 明細行の先頭行（各ブロック2行分をマージしている）。19,21,...,51 の17枠
 FREIGHT_ROW = 53  # 運賃専用行。テンプレート側でC53="運賃"・数量1が既定済み
@@ -179,7 +180,16 @@ def _set_optional_terms_row(ws, cell_coord: str, label: str, text: str) -> None:
     dst.value = f"{label}：{text}"
 
 
-def _set_remarks(ws, lines: list) -> None:
+def _set_remarks(ws, lines: list) -> int:
+    """備考欄に行を書き込み、実際に使った行数に合わせて枠を閉じる。
+
+    以前は備考欄の最大枠(REMARKS_LAST_ROW)まで印刷範囲を固定していたため、
+    備考が少ない見積りでも印刷ページの下部に大きな空白ができていた。
+    実際に使った行数＋空白1行のところに下線（枠の閉じ線）を引き、その行を
+    返す。呼び出し側（fill_quote_sheet）はこの行を印刷範囲の下端に使う。
+    """
+    from copy import copy
+
     max_lines = REMARKS_LAST_ROW - REMARKS_FIRST_ROW + 1
     if len(lines) > max_lines:
         raise TooManyRemarksLinesError(
@@ -188,10 +198,27 @@ def _set_remarks(ws, lines: list) -> None:
         )
     for r in range(REMARKS_FIRST_ROW, REMARKS_LAST_ROW + 1):
         ws.cell(row=r, column=3).value = None
+        ws.row_dimensions[r].hidden = True
     for i, line in enumerate(lines):
         row = REMARKS_FIRST_ROW + i
         ws.cell(row=row, column=3).value = line
         ws.row_dimensions[row].hidden = False
+
+    # 備考が0行でも、見出しの下に最低1行分は空欄の本文行を残す。
+    last_content_row = REMARKS_FIRST_ROW + max(len(lines), 1) - 1
+    gap_row = min(last_content_row + 1, REMARKS_LAST_ROW)
+    ws.row_dimensions[gap_row].hidden = False
+
+    # 枠の左右の罫線（medium）と同じスタイルで、gap_row の下端に閉じ線を引く。
+    side_style = copy(ws.cell(row=REMARKS_FIRST_ROW, column=2).border.left)
+    for col in range(2, 10):  # B〜I列
+        cell = ws.cell(row=gap_row, column=col)
+        b = cell.border
+        cell.border = Border(
+            left=copy(b.left), right=copy(b.right), top=copy(b.top), bottom=side_style,
+        )
+
+    return gap_row
 
 
 def fill_quote_sheet(
@@ -265,7 +292,10 @@ def fill_quote_sheet(
         _set_optional_terms_row(ws, DELIVERY_CELL, DELIVERY_LABEL, delivery_note)
     if inspection_terms:
         _set_optional_terms_row(ws, INSPECTION_CELL, INSPECTION_LABEL, inspection_terms)
-    _set_remarks(ws, remarks_lines or [])
+    closing_row = _set_remarks(ws, remarks_lines or [])
+    # 備考欄の実際の行数に合わせて印刷範囲を都度縮める（枠を閉じた行がそのまま
+    # ページの下端になる）。備考が多い見積りではREMARKS_LAST_ROWまで広がる。
+    ws.print_area = f"A1:J{closing_row}"
 
     for row, item in zip(ITEM_ROWS, items):
         _apply_priced_row(ws, row, item, markup_percent)
@@ -313,19 +343,14 @@ def fill_quote_workbook(template_path: Path, output_path: Path, sheets: list) ->
     base_ws = wb.active
     # ws.print_area はワークシート単体の属性ではなく、シートに紐づいた
     # 名前付き範囲（_xlnm.Print_Area）として保存されているため、
-    # wb.copy_worksheet()では複製先のシートに引き継がれない。セル範囲部分
-    # （シート名を除く "$A$1:$J$70" 等）だけ取り出し、複製後に明示的に設定し直す。
-    print_area_range = base_ws.print_area.split("!")[-1] if base_ws.print_area else None
+    # wb.copy_worksheet()では複製先のシートに引き継がれない。ただし
+    # fill_quote_sheet()が備考の行数に応じて毎回print_areaを設定し直すため、
+    # ここで明示的にコピーし直す必要はない。
 
     for i, sheet_kwargs in enumerate(sheets):
         sheet_kwargs = dict(sheet_kwargs)
         sheet_name = sheet_kwargs.pop("sheet_name", None)
-        if i == 0:
-            ws = base_ws
-        else:
-            ws = wb.copy_worksheet(base_ws)
-            if print_area_range:
-                ws.print_area = print_area_range
+        ws = base_ws if i == 0 else wb.copy_worksheet(base_ws)
         if sheet_name:
             ws.title = sheet_name
         fill_quote_sheet(ws, **sheet_kwargs)
