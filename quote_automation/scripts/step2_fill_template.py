@@ -23,7 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from quote_automation import config
 from quote_automation.extraction.confirmed_quote import load_confirmed_quote
 from quote_automation.scripts.update_ledger import append_ledger_entry
-from quote_automation.template.fill_quote import compute_customer_unit_price, fill_quote_template
+from quote_automation.template.fill_quote import (
+    LIVE_FORMULA_ROUND_DIGITS,
+    compute_customer_unit_price,
+    excel_round,
+    fill_quote_template,
+)
 
 INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
@@ -39,6 +44,8 @@ def effective_customer_unit_price(item, default_markup_percent: float) -> float:
     if item.customer_unit_price is not None:
         return item.customer_unit_price
     rate = item.markup_percent if item.markup_percent is not None else default_markup_percent
+    if getattr(item, "live_formula", False):
+        return excel_round(item.unit_price * (1 + rate / 100), LIVE_FORMULA_ROUND_DIGITS)
     return compute_customer_unit_price(item.unit_price, rate)
 
 
@@ -56,7 +63,8 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
                   f"客先単価={item.customer_unit_price:,.0f}（直接指定）")
         else:
             effective_rate = item.markup_percent if item.markup_percent is not None else confirmed.markup_percent
-            print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} 上乗せ率={effective_rate}%")
+            note = "（Excel数式のまま。率を変えると自動再計算）" if item.live_formula else ""
+            print(f"  - {item.name} 数量={item.qty} 仕入単価={item.unit_price:,.0f} 上乗せ率={effective_rate}%{note}")
     print(f"備考: {len(confirmed.remarks_lines)}行")
     if confirmed.receiving_place != "貴社車上渡し":
         print(f"受渡場所及び条件: {confirmed.receiving_place}")
@@ -86,6 +94,7 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
             "unit_price": i.unit_price,
             "markup_percent": i.markup_percent,
             "customer_unit_price": i.customer_unit_price,
+            "live_formula": i.live_formula,
         }
 
     items = [to_item_dict(i) for i in confirmed.items]

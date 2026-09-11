@@ -36,6 +36,8 @@ FREIGHT_ROW = 53  # 運賃専用行。テンプレート側でC53="運賃"・数
 TOTAL_ROW = 54  # 合計行（G54=SUM(G19:G53), Q54=SUM(Q19:Q53)）
 MARGIN_CELL_ABS = "$M$17"  # 利益率セル（例: 1.09 = 9%上乗せ）
 ROUND_DIGITS = -3  # 客先単価の丸め桁（-3 = 1000円単位）
+LIVE_FORMULA_ROUND_DIGITS = 0  # live_formula指定時の丸め桁（円単位の四捨五入）
+LIVE_FORMULA_FLAG_CELL_COL = 18  # R列。印刷範囲(A1:J)の外。この行がlive_formulaかどうかの目印
 
 FREIGHT_TERMS_CELL = "C14"
 DEFAULT_FREIGHT_TERMS = "運賃込み価格"  # 「送料は別途」等、案件に応じて上書きできる
@@ -86,6 +88,17 @@ def excel_roundup(value: float, num_digits: int) -> float:
     return rounded / factor
 
 
+def excel_round(value: float, num_digits: int) -> float:
+    """ExcelのROUND関数（四捨五入、0から遠い方向への丸め）をPythonで再現する。
+    live_formula（単価をExcel数式のまま残し、上乗せ率セルを変えると自動再計算
+    される行）の検算に使う。1000円単位の切り上げ(excel_roundup)と違い、
+    こちらは通常の四捨五入。"""
+    factor = 10 ** num_digits
+    scaled = round(value * factor, 6)
+    rounded = math.floor(scaled + 0.5) if scaled >= 0 else math.ceil(scaled - 0.5)
+    return rounded / factor
+
+
 def compute_customer_unit_price(unit_cost: float, markup_percent: float) -> float:
     return excel_roundup(unit_cost * (1 + markup_percent / 100), ROUND_DIGITS)
 
@@ -95,9 +108,9 @@ def _require(value, label: str, missing: list) -> None:
         missing.append(label)
 
 
-def _set_item_formulas(ws, row: int, customer_unit_price: float) -> None:
-    """単価は品目ごとの上乗せ率で計算済みの値をそのまま入れ、金額・仕入金額・利益は数式で持たせる
-    （①行目のパターンに合わせる）。"""
+def _set_item_formulas(ws, row: int, customer_unit_price) -> None:
+    """単価は品目ごとの上乗せ率で計算済みの値（またはlive_formula時はExcel数式の
+    文字列）をそのまま入れ、金額・仕入金額・利益は数式で持たせる（①行目のパターンに合わせる）。"""
     ws[f"F{row}"] = customer_unit_price
     ws[f"G{row}"] = f"=E{row}*F{row}"
     ws[f"O{row}"] = f"=M{row}*N{row}"
@@ -110,6 +123,7 @@ def _apply_priced_row(ws, row: int, item: dict, default_markup_percent: float) -
     unit_price = item["unit_price"]
     cost_qty = item.get("cost_qty", qty)
     price_override = item.get("customer_unit_price")
+    live_formula = item.get("live_formula", False)
 
     ws[f"E{row}"] = qty
     ws[f"M{row}"] = cost_qty
@@ -117,6 +131,7 @@ def _apply_priced_row(ws, row: int, item: dict, default_markup_percent: float) -
     if item.get("name"):
         ws[f"C{row}"] = item["name"]
 
+    live_round_digits = None
     if price_override is not None:
         customer_unit_price = price_override
         item_markup_percent = None  # 手動指定単価。Step3側では上乗せ率チェックを行わない
@@ -124,8 +139,18 @@ def _apply_priced_row(ws, row: int, item: dict, default_markup_percent: float) -
         item_markup_percent = item.get("markup_percent")
         if item_markup_percent is None:
             item_markup_percent = default_markup_percent
-        customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
+        if live_formula:
+            # 上乗せ率が今後変わるかもしれない場合、F列を値ではなくExcel数式のまま
+            # 残す（$M$17を編集すると単価が自動再計算される）。この行専用の率を
+            # 使う場合でも$M$17に書くため、他の行と率を共有する構成では使えない
+            # （1明細だけの見積り向け）。
+            ws["M17"] = 1 + item_markup_percent / 100
+            live_round_digits = LIVE_FORMULA_ROUND_DIGITS
+            customer_unit_price = f"=ROUND(N{row}*{MARGIN_CELL_ABS},{live_round_digits})"
+        else:
+            customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
     _set_item_formulas(ws, row, customer_unit_price)
+    ws.cell(row=row, column=LIVE_FORMULA_FLAG_CELL_COL).value = live_round_digits
     # P列は印刷範囲(A1:J47)の外。この行の実効上乗せ率(%)をStep3の検算用に記録しておく
     # （品目ごとに率が異なりうるため、M17だけでは各行の期待値を再現できない）。
     # 単価を直接指定した品目はNoneのままにし、Step3では上乗せ率ベースの検算を行わない

@@ -39,6 +39,14 @@ items[].customer_unit_price は任意。「〇〇円ちょうどにして」の�
 markup_percent（品目別・全体デフォルトいずれも）より優先され、上乗せ率の
 計算は行わずこの値をそのまま客先単価として使う。
 
+items[].live_formula は任意（既定false）。trueにすると、その品目の単価を
+Python側で計算した値ではなく、Excel数式「=ROUND(N×$M$17,0)」のまま残す。
+上乗せ率セル(M17)を後からExcelで書き換えると単価が自動的に再計算される
+（例:「20%で見積もったが、後で30%に変えるかもしれない」場合）。
+1000円単位の切り上げは行わず、円単位の四捨五入になる。customer_unit_price
+と併用不可。M17を共有するため、率の異なる複数品目がある見積りでは
+1品目だけに使うことを想定している。
+
 delivery_note（トップレベル）は任意。「製品ご支給後、約2週間」のように
 納期を指定したい場合に使う。省略した場合は見積書に納期欄自体を表示しない
 （従来通りの見た目になる）。
@@ -71,6 +79,7 @@ class ConfirmedItem:
     unit_price: float
     markup_percent: float = None  # 未指定ならConfirmedQuote.markup_percent(全体デフォルト)を使う
     customer_unit_price: float = None  # 指定時はmarkup_percentより優先し、この単価をそのまま使う
+    live_formula: bool = False  # trueなら単価をExcel数式のまま残す（M17変更で自動再計算）
 
 
 @dataclass
@@ -115,6 +124,7 @@ def _parse_item(raw: dict, *, default_name: str = "", default_qty: float = None)
         unit_price=float(unit_price),
         markup_percent=float(item_markup) if item_markup is not None else None,
         customer_unit_price=float(item_price_override) if item_price_override is not None else None,
+        live_formula=bool(raw.get("live_formula", False)),
     )
 
 

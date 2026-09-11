@@ -19,7 +19,15 @@ from pathlib import Path
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from quote_automation.template.fill_quote import FREIGHT_ROW, ITEM_ROWS, ROUND_DIGITS, TOTAL_ROW, excel_roundup
+from quote_automation.template.fill_quote import (
+    FREIGHT_ROW,
+    ITEM_ROWS,
+    LIVE_FORMULA_FLAG_CELL_COL,
+    ROUND_DIGITS,
+    TOTAL_ROW,
+    excel_round,
+    excel_roundup,
+)
 from quote_automation.template.recalc import recalculate_with_libreoffice
 
 
@@ -53,6 +61,7 @@ def run(quote_path: Path) -> bool:
             cost_amount = ws[f"O{row}"].value
             profit = ws[f"Q{row}"].value
             item_markup_percent = ws[f"P{row}"].value
+            live_round_digits = ws.cell(row=row, column=LIVE_FORMULA_FLAG_CELL_COL).value
 
             if unit_cost is None:
                 continue  # この行は未使用
@@ -65,6 +74,14 @@ def run(quote_path: Path) -> bool:
                 expected_amount = expected_unit_price * qty
                 expected_profit = expected_amount - cost_amount
                 label = f"{row}行目: {name}（単価直接指定）"
+            elif live_round_digits is not None:
+                # 上乗せ率が変わるたびに単価が自動再計算されるよう、F列を
+                # ROUND(N*$M$17, live_round_digits) の数式のまま残した品目。
+                # 1000円単位の切り上げ(excel_roundup)ではなく通常の四捨五入(excel_round)で検算する。
+                expected_unit_price = excel_round(unit_cost * (1 + item_markup_percent / 100), live_round_digits)
+                expected_amount = expected_unit_price * qty
+                expected_profit = expected_amount - cost_amount
+                label = f"{row}行目: {name}（上乗せ率{item_markup_percent}%、数式のまま自動再計算）"
             else:
                 expected_unit_price = excel_roundup(unit_cost * (1 + item_markup_percent / 100), ROUND_DIGITS)
                 expected_amount = expected_unit_price * qty
