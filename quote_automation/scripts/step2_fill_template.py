@@ -83,6 +83,13 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
             print(f"運賃: {f.name} 数量={f.qty} 仕入単価={f.unit_price:,.0f} 上乗せ率={rate}%")
         print(f"運賃条件表記: {confirmed.freight_terms}")
 
+    stamp_path = config.STAMP_IMAGE_PATH if confirmed.stamp else None
+    if confirmed.stamp and not stamp_path.exists():
+        print(f"捺印: 画像が見つからないため今回はスキップします（{stamp_path}）")
+        stamp_path = None
+    elif stamp_path:
+        print("捺印: あり")
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / build_output_filename(confirmed.item_title)
@@ -99,6 +106,18 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
 
     items = [to_item_dict(i) for i in confirmed.items]
     freight_dict = to_item_dict(confirmed.freight) if confirmed.freight else None
+
+    stamp_kwargs = {"stamp_path": stamp_path}
+    if stamp_path:
+        if confirmed.stamp_cell:
+            stamp_kwargs["stamp_cell"] = confirmed.stamp_cell
+        if confirmed.stamp_offset_x_px is not None:
+            stamp_kwargs["stamp_offset_x_px"] = confirmed.stamp_offset_x_px
+        if confirmed.stamp_offset_y_px is not None:
+            stamp_kwargs["stamp_offset_y_px"] = confirmed.stamp_offset_y_px
+        if confirmed.stamp_size_px is not None:
+            stamp_kwargs["stamp_size_px"] = confirmed.stamp_size_px
+
     result_path = fill_quote_template(
         template_path,
         output_path,
@@ -114,6 +133,7 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
         receiving_place=confirmed.receiving_place,
         payment_terms=confirmed.payment_terms,
         inspection_terms=confirmed.inspection_terms or None,
+        **stamp_kwargs,
     )
     print(f"転記済み見積書を出力しました: {result_path}")
 

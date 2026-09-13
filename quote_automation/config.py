@@ -30,5 +30,10 @@ BASE_TEMPLATE_PATH = PACKAGE_DIR / "assets" / "base_quote_template.xlsx"
 # 同じ場所に再アップロードしてから使う。
 LEDGER_PATH = LOCAL_WORK_DIR / "summary" / "quotation_ledger.xlsx"
 
+# 前島様の捺印画像。個人の印影のため、Publicリポジトリにはコミットしない
+# （集計表と同じ扱い）。セッションを開始したら、まず捺印画像（またはそれが
+# 写った資料）をアップロードし直し、このパスに保存してから見積作成を進める。
+STAMP_IMAGE_PATH = LOCAL_WORK_DIR / "assets" / "maejima_stamp.png"
+
 TESSERACT_LANG = "jpn+eng"
 OCR_DPI = 300

@@ -30,7 +30,12 @@ import shutil
 from pathlib import Path
 
 import openpyxl
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.styles import Border
+from openpyxl.utils.cell import coordinate_to_tuple
+from openpyxl.utils.units import pixels_to_EMU
 
 ITEM_ROWS = tuple(range(19, 52, 2))  # 明細行の先頭行（各ブロック2行分をマージしている）。19,21,...,51 の17枠
 FREIGHT_ROW = 53  # 運賃専用行。テンプレート側でC53="運賃"・数量1が既定済み
@@ -62,6 +67,14 @@ DELIVERY_LABEL = "納期" + "　" * 9  # 他の項目ラベル（受渡場所・
 
 INSPECTION_CELL = "C16"
 INSPECTION_LABEL = "検収条件" + "　" * 7
+
+# 捺印（前島印）の既定位置。宛先企業情報欄(H6:I11)の下端、MOBILE行に
+# 少し重ねる形の位置（過去の参考資料に合わせた既定値）。案件ごとに
+# 位置を変えたい場合はfill_quote_sheet()のstamp_*引数で上書きする。
+STAMP_DEFAULT_CELL = "H9"
+STAMP_DEFAULT_OFFSET_X_PX = 60
+STAMP_DEFAULT_OFFSET_Y_PX = 10
+STAMP_DEFAULT_SIZE_PX = 80
 
 
 class TooManyItemsError(Exception):
@@ -221,6 +234,33 @@ def _set_remarks(ws, lines: list) -> int:
     return gap_row
 
 
+def _add_stamp(
+    ws,
+    stamp_path: Path,
+    cell: str = STAMP_DEFAULT_CELL,
+    offset_x_px: int = STAMP_DEFAULT_OFFSET_X_PX,
+    offset_y_px: int = STAMP_DEFAULT_OFFSET_Y_PX,
+    size_px: int = STAMP_DEFAULT_SIZE_PX,
+) -> None:
+    """捺印画像を、指定セルからのオフセット付きで貼り付ける（正方形固定）。
+
+    セル位置＋ピクセルオフセットで指定するため、案件ごとに捺印位置を
+    微調整したい場合はcell/offset_x_px/offset_y_pxを変えるだけでよい。
+    """
+    img = XLImage(str(stamp_path))
+    img.width = size_px
+    img.height = size_px
+    row, col = coordinate_to_tuple(cell)
+    marker = AnchorMarker(
+        col=col - 1, colOff=pixels_to_EMU(offset_x_px),
+        row=row - 1, rowOff=pixels_to_EMU(offset_y_px),
+    )
+    img.anchor = OneCellAnchor(
+        _from=marker, ext=XDRPositiveSize2D(pixels_to_EMU(size_px), pixels_to_EMU(size_px)),
+    )
+    ws.add_image(img)
+
+
 def fill_quote_sheet(
     ws,
     *,
@@ -236,6 +276,11 @@ def fill_quote_sheet(
     receiving_place: str = DEFAULT_RECEIVING_PLACE,
     payment_terms: str = DEFAULT_PAYMENT_TERMS,
     inspection_terms: str = None,
+    stamp_path: Path = None,
+    stamp_cell: str = STAMP_DEFAULT_CELL,
+    stamp_offset_x_px: int = STAMP_DEFAULT_OFFSET_X_PX,
+    stamp_offset_y_px: int = STAMP_DEFAULT_OFFSET_Y_PX,
+    stamp_size_px: int = STAMP_DEFAULT_SIZE_PX,
 ) -> None:
     """
     既に開いている1枚のシートに、確定済みの見積データを書き込む
@@ -263,6 +308,14 @@ def fill_quote_sheet(
     payment_terms: 決済条件（既定は「従来通り」）。客先ごとに決まった条件が
         ある場合はそちらに置き換える。
     inspection_terms: 検収条件。指定があった案件だけ表示する（既定では欄自体を表示しない）。
+    stamp_path: 捺印画像（PNG等）のパス。指定した場合のみ捺印を貼り付ける
+        （既定では何もしない。個人の印影画像はGitにコミットしないため、
+        呼び出し側でconfig.STAMP_IMAGE_PATH等、セッションローカルの
+        パスを渡す）。
+    stamp_cell / stamp_offset_x_px / stamp_offset_y_px: 捺印の位置
+        （既定は宛先企業情報欄付近、STAMP_DEFAULT_CELL等を参照）。
+        案件ごとに位置を変えたい場合はここを上書きする。
+    stamp_size_px: 捺印の一辺のサイズ(px、正方形)。既定80px。
     """
     missing = []
     _require(customer_name, "客先名", missing)
@@ -309,6 +362,13 @@ def fill_quote_sheet(
         freight_item.setdefault("qty", 1)
         _apply_priced_row(ws, FREIGHT_ROW, freight_item, markup_percent)
         ws.row_dimensions[FREIGHT_ROW].hidden = False
+
+    if stamp_path:
+        _add_stamp(
+            ws, stamp_path,
+            cell=stamp_cell, offset_x_px=stamp_offset_x_px,
+            offset_y_px=stamp_offset_y_px, size_px=stamp_size_px,
+        )
 
 
 def fill_quote_template(template_path: Path, output_path: Path, **kwargs) -> Path:

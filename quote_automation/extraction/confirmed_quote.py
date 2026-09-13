@@ -62,6 +62,12 @@ receiving_place / payment_terms（トップレベル）は任意。既定はそ�
 ある場合はそちらを指定する。
 inspection_terms（トップレベル）は任意。検収条件を指定したい場合に使う。
 省略した場合は見積書に検収条件欄自体を表示しない。
+
+stamp（トップレベル、既定true）は任意。falseにすると、その見積りには
+捺印を入れない。捺印画像はconfig.STAMP_IMAGE_PATH（Gitにはコミットしない
+セッションローカルのファイル）が存在する場合のみ実際に貼り付けられる。
+stamp_cell / stamp_offset_x_px / stamp_offset_y_px / stamp_size_px は
+任意。捺印位置・サイズを既定（宛先企業情報欄付近）から変えたい場合に使う。
 """
 import json
 from dataclasses import dataclass, field
@@ -98,6 +104,11 @@ class ConfirmedQuote:
     receiving_place: str = "貴社車上渡し"
     payment_terms: str = "従来通り"
     inspection_terms: str = ""
+    stamp: bool = True  # 既定で前島印を捺印する。不要な案件はfalseにする
+    stamp_cell: str = None  # 捺印位置の上書き（既定はfill_quote.STAMP_DEFAULT_CELL）
+    stamp_offset_x_px: int = None
+    stamp_offset_y_px: int = None
+    stamp_size_px: int = None
 
 
 REQUIRED_TOP_LEVEL_KEYS = (
@@ -160,4 +171,9 @@ def load_confirmed_quote(json_path: Path) -> ConfirmedQuote:
         receiving_place=str(data.get("receiving_place") or "貴社車上渡し").strip(),
         payment_terms=str(data.get("payment_terms") or "従来通り").strip(),
         inspection_terms=str(data.get("inspection_terms") or "").strip(),
+        stamp=bool(data.get("stamp", True)),
+        stamp_cell=str(data["stamp_cell"]).strip() if data.get("stamp_cell") else None,
+        stamp_offset_x_px=int(data["stamp_offset_x_px"]) if data.get("stamp_offset_x_px") is not None else None,
+        stamp_offset_y_px=int(data["stamp_offset_y_px"]) if data.get("stamp_offset_y_px") is not None else None,
+        stamp_size_px=int(data["stamp_size_px"]) if data.get("stamp_size_px") is not None else None,
     )
