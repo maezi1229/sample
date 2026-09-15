@@ -63,6 +63,11 @@ receiving_place / payment_terms（トップレベル）は任意。既定はそ�
 inspection_terms（トップレベル）は任意。検収条件を指定したい場合に使う。
 省略した場合は見積書に検収条件欄自体を表示しない。
 
+quote_number（トップレベル）は任意。見積№を手動で指定したい場合に使う。
+省略時は自動採番される（「HK-」＋見積作成年月日、同日複数件は-2, -3…と
+枝番。詳細はquote_automation/scripts/update_ledger.pyのgenerate_quote_number
+参照）。
+
 stamp（トップレベル、既定true）は任意。falseにすると、その見積りには
 捺印を入れない。捺印画像はconfig.STAMP_IMAGE_PATH（Gitにはコミットしない
 セッションローカルのファイル）が存在する場合のみ実際に貼り付けられる。
@@ -104,6 +109,7 @@ class ConfirmedQuote:
     receiving_place: str = "貴社車上渡し"
     payment_terms: str = "従来通り"
     inspection_terms: str = ""
+    quote_number: str = None  # 見積№の手動指定（任意）。省略時は自動採番
     stamp: bool = True  # 既定で前島印を捺印する。不要な案件はfalseにする
     stamp_cell: str = None  # 捺印位置の上書き（既定はfill_quote.STAMP_DEFAULT_CELL）
     stamp_offset_x_px: int = None
@@ -171,6 +177,7 @@ def load_confirmed_quote(json_path: Path) -> ConfirmedQuote:
         receiving_place=str(data.get("receiving_place") or "貴社車上渡し").strip(),
         payment_terms=str(data.get("payment_terms") or "従来通り").strip(),
         inspection_terms=str(data.get("inspection_terms") or "").strip(),
+        quote_number=str(data["quote_number"]).strip() if data.get("quote_number") else None,
         stamp=bool(data.get("stamp", True)),
         stamp_cell=str(data["stamp_cell"]).strip() if data.get("stamp_cell") else None,
         stamp_offset_x_px=int(data["stamp_offset_x_px"]) if data.get("stamp_offset_x_px") is not None else None,

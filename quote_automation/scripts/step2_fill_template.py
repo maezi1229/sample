@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from quote_automation import config
 from quote_automation.extraction.confirmed_quote import load_confirmed_quote
-from quote_automation.scripts.update_ledger import append_ledger_entry
+from quote_automation.scripts.update_ledger import append_ledger_entry, generate_quote_number
 from quote_automation.template.fill_quote import (
     LIVE_FORMULA_ROUND_DIGITS,
     compute_customer_unit_price,
@@ -83,6 +83,9 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
             print(f"運賃: {f.name} 数量={f.qty} 仕入単価={f.unit_price:,.0f} 上乗せ率={rate}%")
         print(f"運賃条件表記: {confirmed.freight_terms}")
 
+    quote_number = confirmed.quote_number or generate_quote_number(config.LEDGER_PATH)
+    print(f"見積№: {quote_number}")
+
     stamp_path = config.STAMP_IMAGE_PATH if confirmed.stamp else None
     if confirmed.stamp and not stamp_path.exists():
         print(f"捺印: 画像が見つからないため今回はスキップします（{stamp_path}）")
@@ -133,6 +136,7 @@ def run(confirmed_json_path: Path, template_path: Path, output_dir: Path, skip_l
         receiving_place=confirmed.receiving_place,
         payment_terms=confirmed.payment_terms,
         inspection_terms=confirmed.inspection_terms or None,
+        quote_number=quote_number,
         **stamp_kwargs,
     )
     print(f"転記済み見積書を出力しました: {result_path}")

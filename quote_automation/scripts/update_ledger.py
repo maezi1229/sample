@@ -17,6 +17,7 @@
         --cost-amount 100000 --sell-amount 109000 --profit-rate 9 --profit-amount 9000
 """
 import argparse
+import datetime
 from pathlib import Path
 
 import openpyxl
@@ -33,6 +34,35 @@ HEADERS = [
 HEADER_FILL = PatternFill("solid", fgColor="DDEBF7")
 BOLD = Font(bold=True)
 DEFAULT_ORDER_STATUS = "未定"
+
+QUOTE_NUMBER_PREFIX = "HK"
+
+
+def generate_quote_number(ledger_path: Path, date: datetime.date = None) -> str:
+    """見積№を発行する（例:「HK-20260915」）。
+
+    採番ルール: 「HK-」＋見積作成年月日(yyyymmdd)。同日に複数件発行する場合は
+    2件目以降に枝番を付ける（2件目は「-2」、3件目は「-3」…）。
+    「同日に何件目か」は、見積り集計表（ledger_path）に既に記録されている
+    同じ日付の行数を数えて判定する（この関数は新規番号を返すだけで、
+    集計表への追記自体は呼び出し側が別途行う）。
+    """
+    date = date or datetime.date.today()
+    date_str = date.strftime("%Y%m%d")
+    date_jp = date.strftime("%Y/%m/%d")
+
+    count_today = 0
+    ledger_path = Path(ledger_path)
+    if ledger_path.exists():
+        wb = openpyxl.load_workbook(ledger_path, read_only=True)
+        ws = wb[SHEET_TITLE] if SHEET_TITLE in wb.sheetnames else wb.active
+        for row in ws.iter_rows(min_row=2, max_col=1, values_only=True):
+            if row and row[0] == date_jp:
+                count_today += 1
+
+    seq = count_today + 1
+    base = f"{QUOTE_NUMBER_PREFIX}-{date_str}"
+    return base if seq == 1 else f"{base}-{seq}"
 
 
 def _ensure_workbook(ledger_path: Path) -> openpyxl.Workbook:

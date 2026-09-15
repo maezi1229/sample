@@ -54,6 +54,9 @@ REMARKS_LAST_ROW = 67  # 印刷範囲内に収まる範囲でここまで拡張�
 VALIDITY_CELL = "C13"
 VALIDITY_FORMULA = '="見積有効期限         ："&TEXT(H3+30,"yyyy年m月d日")'
 
+QUOTE_NUMBER_CELL = "H4"
+QUOTE_NUMBER_LABEL = "見積№"
+
 RECEIVING_CELL = "C11"
 RECEIVING_LABEL = "受渡場所　及び条件　"
 DEFAULT_RECEIVING_PLACE = "貴社車上渡し"
@@ -276,6 +279,7 @@ def fill_quote_sheet(
     receiving_place: str = DEFAULT_RECEIVING_PLACE,
     payment_terms: str = DEFAULT_PAYMENT_TERMS,
     inspection_terms: str = None,
+    quote_number: str = None,
     stamp_path: Path = None,
     stamp_cell: str = STAMP_DEFAULT_CELL,
     stamp_offset_x_px: int = STAMP_DEFAULT_OFFSET_X_PX,
@@ -308,6 +312,10 @@ def fill_quote_sheet(
     payment_terms: 決済条件（既定は「従来通り」）。客先ごとに決まった条件が
         ある場合はそちらに置き換える。
     inspection_terms: 検収条件。指定があった案件だけ表示する（既定では欄自体を表示しない）。
+    quote_number: 見積№（例:「HK-20260915」）。指定した場合のみH4に
+        「見積№：〇〇」の形式で表示する。採番ルールはupdate_ledger.py の
+        generate_quote_number()を参照（作成年月日ベース、同日複数件は
+        -2, -3...と枝番）。
     stamp_path: 捺印画像（PNG等）のパス。指定した場合のみ捺印を貼り付ける
         （既定では何もしない。個人の印影画像はGitにコミットしないため、
         呼び出し側でconfig.STAMP_IMAGE_PATH等、セッションローカルの
@@ -338,6 +346,8 @@ def fill_quote_sheet(
     ws["D10"] = item_title
     ws["M17"] = 1 + markup_percent / 100
     ws[VALIDITY_CELL] = VALIDITY_FORMULA
+    if quote_number:
+        ws[QUOTE_NUMBER_CELL] = f"{QUOTE_NUMBER_LABEL}：{quote_number}"
     ws[RECEIVING_CELL] = f"{RECEIVING_LABEL}：{receiving_place}"
     ws[PAYMENT_TERMS_CELL] = f"{PAYMENT_TERMS_LABEL}：{payment_terms}"
     ws[FREIGHT_TERMS_CELL] = f"備考：{freight_terms}"

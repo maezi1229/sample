@@ -41,6 +41,12 @@ description: 阪和興業（前島様）向けの見積書作成ワークフロ�
     1000円単位切り上げ（`excel_roundup`、ROUND_DIGITS=-3）とは端数の丸め方が
     変わり、合計金額がわずかに変わる点は把握した上で使う。
   - customer_unit_price（単価直接指定）とlive_formulaは併用不可。
+- **見積№は既定で自動採番する**。`quote_automation.scripts.update_ledger.generate_quote_number()`
+  で発行し、`fill_quote_template()`/`fill_quote_sheet()`の`quote_number`引数に渡す
+  （H4に「見積№：〇〇」の形式で表示される）。採番ルール：「HK-」＋見積作成年月日
+  （yyyymmdd）。同日に複数件発行する場合は2件目に「-2」、3件目に「-3」…と
+  枝番を付ける（見積り集計表の同日の行数から自動判定するため、手動で数える必要はない）。
+  手動で番号を指定したい特殊なケースのみ`confirmed_quote.py`の`quote_number`を上書きする。
 - **捺印は既定でつける**（`config.STAMP_IMAGE_PATH` = `work/assets/maejima_stamp.png`
   が存在する場合）。このファイルはGitにコミットしないセッションローカル管理のため、
   セッションが変わって存在しない場合は、捺印画像（またはそれが写った資料）の
