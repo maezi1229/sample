@@ -41,6 +41,11 @@ description: 阪和興業（前島様）向けの見積書作成ワークフロ�
     1000円単位切り上げ（`excel_roundup`、ROUND_DIGITS=-3）とは端数の丸め方が
     変わり、合計金額がわずかに変わる点は把握した上で使う。
   - customer_unit_price（単価直接指定）とlive_formulaは併用不可。
+- **総計金額は税抜・税込の両方を明記する**（既定で標準仕様）。テンプレートの
+  C8「総計金額（税抜）：￥」の下、C9「（税込10%）：￥」に消費税10%込みの
+  金額を自動計算して表示する（D9 = ROUND(D8*1.1,0)、テンプレート側の
+  固定数式のためコード側で個別に書き込む必要はない）。明細行・単価は
+  従来通り税抜ベースのまま変更しない。
 - **見積№は既定で自動採番する**。`quote_automation.scripts.update_ledger.generate_quote_number()`
   で発行し、`fill_quote_template()`/`fill_quote_sheet()`の`quote_number`引数に渡す
   （H4に「見積№：〇〇」の形式で表示される）。採番ルール：「HK-」＋見積作成年月日
