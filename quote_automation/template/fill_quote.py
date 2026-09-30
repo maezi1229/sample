@@ -42,7 +42,7 @@ FREIGHT_ROW = 53  # 運賃専用行。テンプレート側でC53="運賃"・数
 TOTAL_ROW = 54  # 合計行（G54=SUM(G19:G53), Q54=SUM(Q19:Q53)）
 MARGIN_CELL_ABS = "$M$17"  # 利益率セル（例: 1.09 = 9%上乗せ）
 ROUND_DIGITS = -3  # 客先単価の丸め桁（-3 = 1000円単位）
-LIVE_FORMULA_ROUND_DIGITS = 0  # live_formula指定時の丸め桁（円単位の四捨五入）
+LIVE_FORMULA_ROUND_DIGITS = -2  # live_formula指定時の丸め桁（100円単位で切り上げ）
 LIVE_FORMULA_FLAG_CELL_COL = 18  # R列。印刷範囲(A1:J)の外。この行がlive_formulaかどうかの目印
 
 FREIGHT_TERMS_CELL = "C14"
@@ -107,9 +107,8 @@ def excel_roundup(value: float, num_digits: int) -> float:
 
 def excel_round(value: float, num_digits: int) -> float:
     """ExcelのROUND関数（四捨五入、0から遠い方向への丸め）をPythonで再現する。
-    live_formula（単価をExcel数式のまま残し、上乗せ率セルを変えると自動再計算
-    される行）の検算に使う。1000円単位の切り上げ(excel_roundup)と違い、
-    こちらは通常の四捨五入。"""
+    通常の四捨五入が必要な場面向けの汎用ユーティリティ（live_formulaの検算には
+    excel_roundupを使う。100円単位で切り上げるため）。"""
     factor = 10 ** num_digits
     scaled = round(value * factor, 6)
     rounded = math.floor(scaled + 0.5) if scaled >= 0 else math.ceil(scaled - 0.5)
@@ -163,7 +162,7 @@ def _apply_priced_row(ws, row: int, item: dict, default_markup_percent: float) -
             # （1明細だけの見積り向け）。
             ws["M17"] = 1 + item_markup_percent / 100
             live_round_digits = LIVE_FORMULA_ROUND_DIGITS
-            customer_unit_price = f"=ROUND(N{row}*{MARGIN_CELL_ABS},{live_round_digits})"
+            customer_unit_price = f"=ROUNDUP(N{row}*{MARGIN_CELL_ABS},{live_round_digits})"
         else:
             customer_unit_price = compute_customer_unit_price(unit_price, item_markup_percent)
     _set_item_formulas(ws, row, customer_unit_price)

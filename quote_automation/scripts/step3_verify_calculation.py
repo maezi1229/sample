@@ -25,7 +25,6 @@ from quote_automation.template.fill_quote import (
     LIVE_FORMULA_FLAG_CELL_COL,
     ROUND_DIGITS,
     TOTAL_ROW,
-    excel_round,
     excel_roundup,
 )
 from quote_automation.template.recalc import recalculate_with_libreoffice
@@ -76,9 +75,9 @@ def run(quote_path: Path) -> bool:
                 label = f"{row}行目: {name}（単価直接指定）"
             elif live_round_digits is not None:
                 # 上乗せ率が変わるたびに単価が自動再計算されるよう、F列を
-                # ROUND(N*$M$17, live_round_digits) の数式のまま残した品目。
-                # 1000円単位の切り上げ(excel_roundup)ではなく通常の四捨五入(excel_round)で検算する。
-                expected_unit_price = excel_round(unit_cost * (1 + item_markup_percent / 100), live_round_digits)
+                # ROUNDUP(N*$M$17, live_round_digits) の数式のまま残した品目。
+                # 既定は100円単位の切り上げ(excel_roundup、LIVE_FORMULA_ROUND_DIGITS=-2)。
+                expected_unit_price = excel_roundup(unit_cost * (1 + item_markup_percent / 100), live_round_digits)
                 expected_amount = expected_unit_price * qty
                 expected_profit = expected_amount - cost_amount
                 label = f"{row}行目: {name}（上乗せ率{item_markup_percent}%、数式のまま自動再計算）"

@@ -26,7 +26,7 @@ from quote_automation.scripts.update_ledger import append_ledger_entry, generate
 from quote_automation.template.fill_quote import (
     LIVE_FORMULA_ROUND_DIGITS,
     compute_customer_unit_price,
-    excel_round,
+    excel_roundup,
     fill_quote_template,
 )
 
@@ -45,7 +45,7 @@ def effective_customer_unit_price(item, default_markup_percent: float) -> float:
         return item.customer_unit_price
     rate = item.markup_percent if item.markup_percent is not None else default_markup_percent
     if getattr(item, "live_formula", False):
-        return excel_round(item.unit_price * (1 + rate / 100), LIVE_FORMULA_ROUND_DIGITS)
+        return excel_roundup(item.unit_price * (1 + rate / 100), LIVE_FORMULA_ROUND_DIGITS)
     return compute_customer_unit_price(item.unit_price, rate)
 
 
