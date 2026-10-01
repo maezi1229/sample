@@ -8,16 +8,25 @@
 テンプレート: quote_automation/assets/steel_material_quote_template.xlsx
 - 明細は8枠（18〜25行目）。1行 = 板厚(B)・幅(C)・長さ(D)・単重量kg(E)・数量(F)・
   総重量kg(G、=E×F)・客先単価円/kg(H)・客先枚単価円(I、=E×H)・客先合計金額円(J、=F×I)
-- 印刷範囲（A1:J28）の外側（M〜P列）に原価欄を持つ。仕入先見積りの
+- 印刷範囲（A1:J28）の外側（M〜Q列）に原価欄を持つ。仕入先見積りの
   「板厚ごとの枚単価（製品価格）」をO列にそのまま転記するのが入力の起点
   （kg単価は参考値のため、Nは=O/Eの数式でOから逆算する）。
-  P16セルに「円/kg乗せ」（客先単価 = 原価単価(円/kg) + この値）を入力すると、
-  H〜J列（客先向け表示）とD8/D9（総計金額）まで自動で連動して再計算される。
-  ％の上乗せ率（M17のような仕組み）ではなく、円/kgの定額乗せである点が
-  通常の見積り（fill_quote.py）と異なる。
-- 運賃は既定では客先向け金額（J26）を別途・固定額で入力する
-  （乗せ代(P16)とは連動しない。従来通り仕入運賃に固定の掛け率を
-  乗せた金額を直接指定する運用。連動させたい場合は都度相談する）。
+  P16セルに「円/kg乗せ」（客先単価 = 原価単価(円/kg) + この値、ラベルはQ16）
+  を入力すると、H〜J列（客先向け表示）とD8/D9（総計金額）まで自動で
+  連動して再計算される。％の上乗せ率（M17のような仕組み）ではなく、
+  円/kgの定額乗せである点が通常の見積り（fill_quote.py）と異なる。
+- **運賃も固定値を直書きせず、原価(P26)×掛け率(Q26)のライブ数式にする**
+  （J26 = `=ROUND(P26*Q26,-3)`）。乗せ代(P16)とは連動しない別建てだが、
+  「客先向け金額を電卓で計算して直接書き込む」のは禁止（過去に固定値を
+  直書きして後から掛け率入りの数式に直された実例あり、2026/10/01）。
+  他の計算済み金額と同様、必ずセル参照の数式にする。
+- 合計行の下（M28/P28）に利益行（= 客先合計(J27) − 原価合計(P27)）を
+  自動で表示する。
+- **受渡場所はこの形式では既定値を設けていない**。重量×キロ単価見積りと
+  同様、必ずチャットで確認する（貴社車上渡しを安易な既定にしない。
+  仕入先見積りPDFの納入先設定・発送エリアの記載も参考にする。質問が
+  一括で見送られた場合も、この項目だけは納品前に必ず改めて確認する、
+  2026/10/01の実例より）。
 - 見積№・捺印は通常の見積書と同じルール（fill_quote.pyと同じテンプレート
   由来のレイアウトのため、STAMP_DEFAULT_CELL等もfill_quote.pyと共通）。
 """
@@ -39,9 +48,10 @@ QUOTE_NUMBER_CELL = "H4"
 QUOTE_NUMBER_LABEL = "見積№"
 
 MARKUP_PER_KG_CELL = "P16"  # 円/kg乗せ（原価単価＋この値＝客先単価）
+FREIGHT_COST_CELL = "P26"
+FREIGHT_MULTIPLIER_CELL = "Q26"  # 運賃の掛け率（例: 20%増しなら1.2）
 
 DEFAULT_PAYMENT_TERMS = "従来通り"
-DEFAULT_RECEIVING_PLACE = "貴社車上渡し"
 
 
 class TooManyItemsError(Exception):
@@ -65,8 +75,9 @@ def fill_steel_quote_sheet(
     item_title: str,
     items: list,
     markup_per_kg: float,
-    freight_customer_price: float = None,
-    receiving_place: str = DEFAULT_RECEIVING_PLACE,
+    receiving_place: str,
+    freight_cost: float = None,
+    freight_multiplier: float = None,
     payment_terms: str = DEFAULT_PAYMENT_TERMS,
     note: str = None,
     quote_number: str = None,
@@ -83,13 +94,18 @@ def fill_steel_quote_sheet(
              "qty": 数量, "piece_cost": 仕入先見積りの枚単価（製品価格、円）}, ...] 最大8件まで。
         客先単価（円/kg）はテンプレート側の固定数式（原価単価+markup_per_kg）で自動計算される。
     markup_per_kg: 円/kgの定額乗せ（％上乗せではない）。P16セルに書き込む。
-    freight_customer_price: 運賃の客先向け金額（円）。省略時は運賃行を空欄のままにする
-        （通常は仕入運賃に対する掛け率で別途計算し、この引数に渡す）。
+    receiving_place: 受渡場所及び条件。この形式では既定値を設けていないため必須
+        （仕入先見積りPDFの納入先設定も参考に、必ずチャットで確認してから渡す）。
+    freight_cost: 運賃の原価（円）。freight_multiplierとセットで指定すると、
+        客先向け運賃をJ26に`=ROUND(P26*Q26,-3)`というライブ数式で書き込む
+        （固定値の直書きはしない）。どちらも省略した場合は運賃行を空欄のままにする。
+    freight_multiplier: 運賃の掛け率（例: 20%増しなら1.2）。
     """
     missing = []
     _require(customer_name, "客先名", missing)
     _require(contact_name, "担当者名", missing)
     _require(item_title, "件名（品名・物件名）", missing)
+    _require(receiving_place, "受渡場所及び条件", missing)
     if markup_per_kg is None:
         missing.append("円/kg乗せ（乗せ代）")
     if missing:
@@ -122,8 +138,10 @@ def fill_steel_quote_sheet(
         ws[f"F{row}"] = item["qty"]
         ws[f"O{row}"] = item["piece_cost"]
 
-    if freight_customer_price is not None:
-        ws["J26"] = freight_customer_price
+    if freight_cost is not None and freight_multiplier is not None:
+        ws[FREIGHT_COST_CELL] = freight_cost
+        ws[FREIGHT_MULTIPLIER_CELL] = freight_multiplier
+        ws["J26"] = "=ROUND(P26*Q26,-3)"
 
     if stamp_path:
         _add_stamp(
